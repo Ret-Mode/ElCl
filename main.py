@@ -2,6 +2,7 @@
 The GAME
 """
 import sys
+import math
 import arcade
 import pymunk
 from typing import Optional  # [EH] wut is this??????
@@ -13,18 +14,30 @@ SCREEN_TITLE = "Platformer"
 
 
 class Level:
+
     def __init__(self):
         self.line = None
+        self.pos = [0,0]
 
     def create(self, space):
-        self.line = [ 10, 10, 400, 10]
+
+        radius = SCREEN_HEIGHT/2
+        elems = 50
+        dr = math.pi * 2.0 / 50
+        self.line = []
+        for i in range(elems):
+            self.line.append([math.sin(i * dr) * radius, math.cos(i*dr) * radius])
+        self.line.append([0, radius])
 
         body = pymunk.Body(body_type=pymunk.Body.STATIC)
-        body.position = (0, 0)
-        l1 = pymunk.Segment(body, (self.line[0], self.line[1]), (self.line[2], self.line[3]), 1)
-        l1.friction = 10
-        # TODO [EH] why is only shape added to the pymunk space here? Shouldn't it be added with a body?
-        space.add(l1)
+        space.add(body)
+        body.position = (radius, radius)
+        self.pos = [radius, radius]
+        for i in range(elems):
+            l1 = pymunk.Segment(body, (self.line[i][0],   self.line[i][1]),
+                                      (self.line[i+1][0], self.line[i+1])[1], 1)
+            l1.friction = 10
+            space.add(l1)
 
 
 class Bike:
@@ -32,26 +45,42 @@ class Bike:
         self.lw = None
         self.rw = None
         self.head = None
+        self.dir = 1  # TODO [EH] normal directions, now 1 is left, -1 is right
 
-    def create(self, x, y):
-        self.lw = arcade.SpriteCircle(20, (255, 255, 255), False)
-        self.rw = arcade.SpriteCircle(20, (128, 128, 128), False)
-        self.head = arcade.SpriteCircle(20, (0, 0, 0), False)
+    def create(self, x, y, space):
 
+        self.lw = pymunk.Body(1, pymunk.moment_for_circle(1, 0, 15), body_type=pymunk.Body.DYNAMIC)
+        space.add(self.lw)
         self.lw.position = x - 30, y - 30
+        l1 = pymunk.Circle(self.lw, 15)
+        space.add(l1)
+        l1.elasticity = 0
+        l1.friction = 0.7
+
+        self.rw = pymunk.Body(1, pymunk.moment_for_circle(1, 0, 15), body_type=pymunk.Body.DYNAMIC)
+        space.add(self.rw)
         self.rw.position = x + 30, y - 30
-        self.head.position = x,    y + 10
+        l2 = pymunk.Circle(self.rw, 15)
+        space.add(l2)
+        l2.elasticity = 0
+        l2.friction = 0.7
 
-        # TODO [EH] cutoff physics from internal engine into direct pymunk calls
+        self.head = pymunk.Body(5, pymunk.moment_for_box(5, (80,30)), body_type=pymunk.Body.DYNAMIC)
+        space.add(self.head)
+        self.head.position = x, y + 30
+        l3 = pymunk.Circle(self.head, 15)
+        space.add(l3)
+        l3.elasticity = 0
+        l3.friction = 0.7
 
-        # body = pymunk.Body(body_type=pymunk.Body.Kinematic)
-        # l1 = pymunk.Circle(body, 20, (-30, -30))
-        # space.add(l1)
-        # body = pymunk.Body(body_type=pymunk.Body.Kinematic)
-        # l1 = pymunk.Circle(body, 20, (30, -30))
-        # space.add(l1)
-        # TODO [EH] when global position of a body shall be set? before/after a call to space.add?
-        # body.position = (0, 0)
+        space.add(pymunk.GrooveJoint(
+            self.head, self.lw, (-30, -10), (-30, -40), (0, 0)))
+        space.add(pymunk.GrooveJoint(
+            self.head, self.rw, (30, -10), (30, -40), (0, 0)))
+        space.add(pymunk.DampedSpring(
+            self.head, self.lw, (-30, 0), (0, 0), 50, 20, 10))
+        space.add(pymunk.DampedSpring(
+            self.head, self.rw, (30, 0), (0, 0), 50, 20, 10))
 
 
 class MyGame(arcade.Window):
@@ -75,7 +104,7 @@ class MyGame(arcade.Window):
         self.level = None
 
         # TODO [EH] was torque, but its just angular velocity, will be renamed
-        self.tor = 0
+        self.ang_vel = 0
 
     def setup(self):
         """ Set up the game here. Call this function to restart the game. """
@@ -84,45 +113,59 @@ class MyGame(arcade.Window):
         # new levels? Should main loop be stopped? :|
 
         # TODO [EH] remove this (then direct call to pymunk step/update will need to be added to main loop)
-        self.physics_engine = arcade.PymunkPhysicsEngine(damping=0.2,
-                                                         gravity=(0, -500))
+        self.physics_engine = arcade.PymunkPhysicsEngine(damping=1,
+                                                         gravity=(0, -100))
 
         self.bike = Bike()
         self.level = Level()
-        self.bike.create(200, 200)
+        self.bike.create(300, 300, self.physics_engine.space)
         self.level.create(self.physics_engine.space)
-        self.player_list = arcade.SpriteList()
-        self.player_list.append(self.bike.lw)
-        self.player_list.append(self.bike.rw)
-        self.player_list.append(self.bike.head)
-
-        self.physics_engine.add_sprite_list(self.player_list)
 
     def on_draw(self):
         """ Render the screen. """
 
         # TODO [EH] is it needed to be called every time on start of this func?
         arcade.start_render()
+        p = self.level.pos
+        for i in range(len(self.level.line) - 1):
+            arcade.draw_line(self.level.line[i][0]+p[0], self.level.line[i][1]+p[1], self.level.line[i+1][0]+p[0], self.level.line[i+1][1]+p[1], arcade.color.BLACK, 1)
 
-        arcade.draw_line(self.level.line[0], self.level.line[1], self.level.line[2], self.level.line[3], arcade.color.BLACK, 2)
-        self.player_list.draw()
+        pos = self.bike.lw.position
+        arcade.draw_circle_filled(pos[0], pos[1], 15, arcade.color.BLACK)
+
+        pos = self.bike.rw.position
+        arcade.draw_circle_filled(pos[0], pos[1], 15, arcade.color.AFRICAN_VIOLET)
+
+        pos = self.bike.head.position
+        arcade.draw_circle_filled(pos[0], pos[1], 15, arcade.color.ALLOY_ORANGE)
+
+        # self.player_list.draw()
 
     def on_key_press(self, key, modifiers):
         """Called whenever a key is pressed. """
-        self.tor = 20
+        if key == arcade.key.W:
+            self.ang_vel = -20 * self.bike.dir
+        elif key == arcade.key.S:
+            self.ang_vel = 20 * self.bike.dir
+        elif key == arcade.key.SPACE:
+            self.bike.dir *= -1
 
     def on_key_release(self, key, modifiers):
         """Called when the user releases a key. """
-        self.tor = 0
+        self.ang_vel = 0
 
     def on_update(self, delta_time):
         """ Movement and game logic """
-        obj = self.physics_engine.get_physics_object(self.bike.head)
+        if self.bike.dir > 0:
+            obj = self.bike.lw
+        else:
+            obj = self.bike.rw
 
         # set angular velocity for every frame
-        obj.body.angular_velocity = self.tor
+        obj.angular_velocity = self.ang_vel
 
-        # TODO [EH] this will be threw out
+        # TODO [EH] this will be threw out (??)
+        #self.physics_engine.space.step(1/60)
         self.physics_engine.step()
 
 
