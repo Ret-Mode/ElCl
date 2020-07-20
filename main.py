@@ -5,7 +5,7 @@ import sys
 import math
 import arcade
 import pymunk
-from typing import Optional  # [EH] wut is this??????
+from typing import Optional  # TODO [EH] wut is this??????
 
 # TODO [EH] shall it stay global? Move it into direct call?
 SCREEN_WIDTH = 1000
@@ -15,9 +15,11 @@ SCREEN_TITLE = "Platformer"
 
 class Level:
 
+    # TODO [EH] add reset of level per key press
+
     def __init__(self):
         self.line = None
-        self.pos = [0,0]
+        self.pos = [0, 0]
 
     def create(self, space):
 
@@ -41,22 +43,47 @@ class Level:
 
 
 class Bike:
+
+    # TODO [EH] change this class into Vehicle
+    # TODO [EH] add reset of bike per key press
+
     def __init__(self):
         self.lw = None
         self.rw = None
         self.head = None
-        self.dir = 1  # TODO [EH] normal directions, now 1 is left, -1 is right
+        self.dir = 1  # TODO [EH] create some normal directions maybe, now 1 is left wheel, -1 is right wheel
 
     def create(self, x, y, space):
 
+        # general physics processing
+        # TODO [EH] how could it be moved into xml?
+        # overall processing is this:
+        # 1 create body
+        # 2 add body to space
+        # 3 process body
+        # 4 create shape
+        # 5 add shape to space
+        # 6 process shape
+        # 7 create constraints
+        # 8 add constraints to space
+        # TODO [EH] how to clean it up before swapping levels???!
+        # TODO [EH] store references in the table and then clean it? remove whole space? :|
+
+        # create body
         self.lw = pymunk.Body(1, pymunk.moment_for_circle(1, 0, 15), body_type=pymunk.Body.DYNAMIC)
+        # add body to space
         space.add(self.lw)
+        # modify body
         self.lw.position = x - 30, y - 30
+        # create shape and add it to body
         l1 = pymunk.Circle(self.lw, 15)
+        # add shape to space
         space.add(l1)
+        # modify shape
         l1.elasticity = 0
         l1.friction = 0.7
 
+        # repeat...
         self.rw = pymunk.Body(1, pymunk.moment_for_circle(1, 0, 15), body_type=pymunk.Body.DYNAMIC)
         space.add(self.rw)
         self.rw.position = x + 30, y - 30
@@ -65,7 +92,7 @@ class Bike:
         l2.elasticity = 0
         l2.friction = 0.7
 
-        self.head = pymunk.Body(5, pymunk.moment_for_box(5, (80,30)), body_type=pymunk.Body.DYNAMIC)
+        self.head = pymunk.Body(5, pymunk.moment_for_box(10, (80,30)), body_type=pymunk.Body.DYNAMIC)
         space.add(self.head)
         self.head.position = x, y + 30
         l3 = pymunk.Circle(self.head, 15)
@@ -73,8 +100,11 @@ class Bike:
         l3.elasticity = 0
         l3.friction = 0.7
 
+        # 1. add constraints to bodies
+        # 2. add constraints to space
         space.add(pymunk.GrooveJoint(
             self.head, self.lw, (-30, -10), (-30, -40), (0, 0)))
+        # repeat...
         space.add(pymunk.GrooveJoint(
             self.head, self.rw, (30, -10), (30, -40), (0, 0)))
         space.add(pymunk.DampedSpring(
@@ -102,8 +132,6 @@ class MyGame(arcade.Window):
 
         self.bike = None
         self.level = None
-
-        # TODO [EH] was torque, but its just angular velocity, will be renamed
         self.ang_vel = 0
 
     def setup(self):
@@ -124,17 +152,30 @@ class MyGame(arcade.Window):
     def on_draw(self):
         """ Render the screen. """
 
-        # TODO [EH] is it needed to be called every time on start of this func?
+        # TODO [EH] add camera movement
+        # is it needed to be called every time on start of this func?
+        # it is -> clearing buffers before drawing
+        # TODO [EH] - needs to be checked if a direct call to get_window().clear() could be done in place of bazillion
+        # calls to subclasses etc... (not object oriented though)
         arcade.start_render()
         p = self.level.pos
         for i in range(len(self.level.line) - 1):
-            arcade.draw_line(self.level.line[i][0]+p[0], self.level.line[i][1]+p[1], self.level.line[i+1][0]+p[0], self.level.line[i+1][1]+p[1], arcade.color.BLACK, 1)
+            arcade.draw_line(self.level.line[i][0]+p[0],
+                             self.level.line[i][1]+p[1],
+                             self.level.line[i+1][0]+p[0],
+                             self.level.line[i+1][1]+p[1], arcade.color.BLACK, 1)
 
-        pos = self.bike.lw.position
-        arcade.draw_circle_filled(pos[0], pos[1], 15, arcade.color.BLACK)
-
-        pos = self.bike.rw.position
-        arcade.draw_circle_filled(pos[0], pos[1], 15, arcade.color.AFRICAN_VIOLET)
+        # black wheel moves the bike
+        if self.bike.dir > 0:
+            pos = self.bike.lw.position
+            arcade.draw_circle_filled(pos[0], pos[1], 15, arcade.color.BLACK)
+            pos = self.bike.rw.position
+            arcade.draw_circle_filled(pos[0], pos[1], 15, arcade.color.AFRICAN_VIOLET)
+        else:
+            pos = self.bike.rw.position
+            arcade.draw_circle_filled(pos[0], pos[1], 15, arcade.color.BLACK)
+            pos = self.bike.lw.position
+            arcade.draw_circle_filled(pos[0], pos[1], 15, arcade.color.AFRICAN_VIOLET)
 
         pos = self.bike.head.position
         arcade.draw_circle_filled(pos[0], pos[1], 15, arcade.color.ALLOY_ORANGE)
@@ -165,12 +206,14 @@ class MyGame(arcade.Window):
         obj.angular_velocity = self.ang_vel
 
         # TODO [EH] this will be threw out (??)
-        #self.physics_engine.space.step(1/60)
+        # TODO [EH] if during setup direct boot of pymunk will be set in place of self.physics_engine, then yep!
+        # self.physics_engine.space.step(1/60)
         self.physics_engine.step()
 
 
 def main():
     """ Main method """
+    # TODO [EH] -> check in sources what is this and could it be changed into direct calls?
     window = MyGame()
     window.setup()
     arcade.run()
