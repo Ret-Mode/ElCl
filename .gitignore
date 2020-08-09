@@ -145,3 +145,4 @@
 /examples/view_instructions_and_game_over.py
 /examples/view_pause_screen.py
 /examples/view_screens_minimal.py
+/examples/pymunk_platformer/
