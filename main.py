@@ -9,7 +9,7 @@ import pyglet
 import arcade
 import pymunk
 
-from typing import Optional  # TODO [EH] wut is this??????
+from typing import Optional
 import xml.etree.ElementTree as ET
 
 # TODO [EH] shall it stay global? Move it into direct call?
@@ -45,7 +45,7 @@ class Level2:
 
     def create(self, space):
         self.getTexture(EXEC_FOLDER + '\\mapa.png').getMarchingCubes(60, 60).sendSegmentsToPhysics(space)
-        #PhysicsDumper('_level.xml', EXEC_FOLDER).readData(self, space)
+        #PhysicsDumper('mapa.xml', EXEC_FOLDER).readData(self, space)
 
     def getTexture(self, path):
         self.t = arcade.load_texture(path)
@@ -65,8 +65,7 @@ class Level2:
 
         pymunk.autogeometry.march_soft(pymunk.BB(0, 0, self.t.width-1, self.t.height-1), density_x, density_y,
                                        self.alpha_threshold, segment_func, sample_func)
-        #ENLARGE texture
-        #self.t.image = self.t.image.resize((int(self.t.width * self.scale_x), int(self.t.height * self.scale_y)))
+
         return self
 
     def sendSegmentsToPhysics(self, space):
@@ -81,11 +80,11 @@ class Level2:
 
     def draw(self):
         arcade.draw_scaled_texture_rectangle(self.t.width, self.t.height, self.t, self.scale_x)
-        # arcade.draw_texture_rectangle(self.t.width / 2, self.t.height / 2, self.t.width,
-        #                               self.t.height, self.t)
         for i in self.segments:
             arcade.draw_line(i[0][0], i[0][1], i[1][0], i[1][1], arcade.color.LEMON, 1)
 
+
+# TODO [EH] move this to separate file
 class PhysicsDumper():
     def __init__(self, filename, filepath, sep='\\'):
         self.path = filepath + sep + filename
@@ -218,6 +217,7 @@ class PhysicsDumper():
             constraint.set("type", "SimpleMotor")
             constraint.set("rate", str(cns.rate))
 
+        constraint.set("collide_bodies", str(cns.collide_bodies))
         constraint.set("error_bias", str(cns.error_bias))
         constraint.set("max_bias", str(cns.max_bias))
         constraint.set("max_force", str(cns.max_force))
@@ -397,6 +397,22 @@ class Bike:
         self.shp = {}
         self.cns = {}
         self.dir = 1  # TODO [EH] create some normal directions maybe, now 1 is left wheel, -1 is right wheel
+        self.wheelTex = arcade.Sprite(EXEC_FOLDER + "\\2.png")
+        self.bodyTex = [arcade.Sprite(EXEC_FOLDER + "\\1.png"), arcade.Sprite(EXEC_FOLDER + "\\1.png")]
+        self.headTex = [arcade.Sprite(EXEC_FOLDER + "\\3.png"), arcade.Sprite(EXEC_FOLDER + "\\3.png")]
+        self.bodyTex[1].texture_transform.scale(-1, 1)
+        self.headTex[1].texture_transform.scale(-1, 1)
+        self.wheelTex.center_x = self.wheelTex.width//2
+        self.wheelTex.center_y = self.wheelTex.height//2
+
+        self.bodyTex[0].center_x = self.bodyTex[0].width//2
+        self.bodyTex[0].center_y = 0
+        self.bodyTex[1].center_x = self.bodyTex[1].width//2
+        self.bodyTex[1].center_y = 0
+        self.headTex[0].center_x = self.headTex[0].width//2
+        self.headTex[0].center_y = self.headTex[0].height//2
+        self.headTex[1].center_x = self.headTex[1].width//2
+        self.headTex[1].center_y = self.headTex[1].height//2
 
     def remove(self, space):
         for v in self.cns:
@@ -411,12 +427,36 @@ class Bike:
         #PhysicsDumper('_bike.xml', EXEC_FOLDER).dumpData(self)
 
     def draw(self):
-        for s in self.shp:
-            shape = self.shp[s]
-            bpos = shape.body.position
-            arcade.draw_circle_filled(shape.offset[0] + bpos[0], shape.offset[1] + bpos[1], shape.radius,
-                                      arcade.color.CYAN)
+        # for s in self.shp:
+        #     shape = self.shp[s]
+        #     bpos = shape.body.position
+        #     arcade.draw_circle_filled(shape.offset[0] + bpos[0], shape.offset[1] + bpos[1], shape.radius,
+        #                               arcade.color.CYAN)
+        self.wheelTex.set_position(self.bd['lw'].position.x,self.bd['lw'].position.y)
+        self.wheelTex.angle = self.bd['lw'].angle * 180/math.pi
+        self.wheelTex.draw()
 
+        self.wheelTex.set_position(self.bd['rw'].position.x,self.bd['rw'].position.y)
+        self.wheelTex.angle = self.bd['rw'].angle * 180/math.pi
+        self.wheelTex.draw()
+
+        i = 1
+        if self.dir > 0:
+            i = 0
+
+        self.bodyTex[i].angle = self.bd['head'].angle * 180/math.pi
+        self.bodyTex[i].set_position(self.bd['head'].position.x + 20 * math.sin(self.bd['head'].angle),
+                                     self.bd['head'].position.y - 20 * math.cos(self.bd['head'].angle))
+
+        self.bodyTex[i].draw()
+        self.bodyTex[i].draw()
+
+        self.headTex[i].angle = self.bd['head'].angle * 180/math.pi
+        self.headTex[i].set_position(self.bd['head'].position.x,
+                                     self.bd['head'].position.y)
+
+        self.headTex[i].draw()
+        self.headTex[i].draw()
 
 class MyGame(arcade.Window):
     """
@@ -427,8 +467,6 @@ class MyGame(arcade.Window):
 
         # Call the parent class and set up the window
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, SCREEN_TITLE)
-        # Physics engine wrapper TODO [EH] change to direct pymunk
-        self.physics_engine = Optional[arcade.PymunkPhysicsEngine]
 
         arcade.set_background_color(arcade.csscolor.CORNFLOWER_BLUE)
 
@@ -438,7 +476,6 @@ class MyGame(arcade.Window):
         self.bike = None
         self.level = None
 
-        #self.level2 = None
         self.ang_vel = 0
         self.music = None
         self.prevtime = time.time()
@@ -447,14 +484,16 @@ class MyGame(arcade.Window):
         self.set_update_rate(1/60)
 
         self.processPhysics = True
+        self.printFPS = False
         self.drawGraphics = True
         self.drawText = True
         self.printPhysicElems = False
 
         self.help = ''''w' and 's' to steer, ' ' to change wheels,
-'z' to dump level and bike to xml, 'x' to hide text,
-'c' to hide graphics, 'v' to ignore physics
-'b' to reload bike, 'n' to reload level'''
+'Z' to dump level and bike to xml, 'X' to hide text,
+'C' to hide graphics, 'V' to ignore physics
+'B' to reload bike, 'N' to reload level
+'Q' to print FPS in console'''
 
         print(self.help)
         self.fn = EXEC_FOLDER + '\\Pacifico.ttf'
@@ -467,37 +506,18 @@ class MyGame(arcade.Window):
         # new levels? Should main loop be stopped? :|
 
         # TODO [EH] remove this (then direct call to pymunk step/update will need to be added to main loop)
-        self.physics_engine = arcade.PymunkPhysicsEngine(damping=1,
-                                                         gravity=(0, -100))
+        self.space = pymunk.Space()
+        self.space.gravity = (0, -100)
+        self.space.damping = 1
 
         self.bike = Bike()
-        #self.level = Level()
-        #self.level2 = Level2()
         self.level = Level2()
 
         #PhysicsDumper('_level2.xml', EXEC_FOLDER).dumpData(self.level2)
-        self.bike.create(self.physics_engine.space)
-        self.level.create(self.physics_engine.space)
+        self.bike.create(self.space)
+        self.level.create(self.space)
         self.music = arcade.Sound(":resources:music/1918.mp3", streaming=True)
         self.music.play(0.02)
-
-    # def draw_lines(self, arr):
-    #     for i in arr:
-    #         arcade.draw_line(i[0][0], i[0][1], i[1][0], i[1][1], arcade.color.LEMON, 1)
-    #
-    # def draw_shapes(self, shape, thickness, color):
-    #     if shape.__class__.__name__ == "Poly":
-    #         bpos = shape.body.position
-    #         poly = shape.get_vertices()
-    #         for v in range(len(poly) - 1):
-    #             arcade.draw_line(poly[v][0]+bpos[0], poly[v][1]+bpos[1], poly[v+1][0]+bpos[0], poly[v+1][1]+bpos[1], color, thickness)
-    #         arcade.draw_line(poly[-1][0]+bpos[0], poly[-1][1]+bpos[1], poly[0][0]+bpos[0], poly[0][0]+bpos[1], color, thickness)
-    #     elif shape.__class__.__name__ == "Segment":
-    #         bpos = shape.body.position
-    #         arcade.draw_line(shape.a[0]+bpos[0], shape.a[1]+bpos[1], shape.b[0]+bpos[0], shape.b[1]+bpos[1], color, thickness)
-    #     elif shape.__class__.__name__ == "Circle":
-    #         bpos = shape.body.position
-    #         arcade.draw_circle_filled(shape.offset[0]+bpos[0], shape.offset[1]+bpos[1], shape.radius, color)
 
     def print_physic_elems(self, body_dict, body_id):
         b = body_dict[body_id]
@@ -525,38 +545,12 @@ class MyGame(arcade.Window):
 
             self.level.draw()
             self.bike.draw()
-            #self.level2.draw()
-
-            #arcade.draw_texture_rectangle(self.level2.t.width/2, self.level2.t.height/2, self.level2.t.width, self.level2.t.height, self.level2.t)
-
-            # for shp in self.level.shp:
-            #     self.draw_shapes(self.level.shp[shp], 1, arcade.color.BLACK)
-            #
-            # for shp in self.bike.shp:
-            #     self.draw_shapes(self.bike.shp[shp], 1, arcade.color.CYAN)
-
-            #self.draw_lines(self.level2.segments)
 
         if self.drawText:
-            pass
-            # arcade.draw_text("UPDATE  " + str(1000 * self.update_time) + "ms", v[0] + 700, v[2] + 90,
-            #                  arcade.color.BLACK, 12, font_name=self.fn)
-            # arcade.draw_text(self.cwd, v[0] + 700, v[2] + 75, arcade.color.BLACK, 12, font_name=self.fn)
-            # arcade.draw_text("DRAWING " + str(1000 * (time.time() - t)) + "ms", v[0] + 700, v[2] + 60,
-            #                  arcade.color.BLACK, 12, font_name=self.fn)
-            # arcade.draw_text("PHYSICS " + str(1000 * self.munktime) + "ms", v[0] + 700, v[2] + 45, arcade.color.BLACK,
-            #                  12, font_name=self.fn)
-            # arcade.draw_text("WHOLE F " + str(1000 * (time.time() - self.prevtime)) + "ms", v[0] + 700, v[2] + 30,
-            #                  arcade.color.BLACK, 12, font_name=self.fn)
-            # arcade.draw_text(self.help, v[0] + 20, v[2] + 90, arcade.color.BLACK, 12, font_name=self.fn)
-            #
-            # dt = time.time() - self.prevtime
-            # dt = 0.001 if dt <= 0.001 else dt
-            #
-            # arcade.draw_text("FPS---- " + str(1 / (dt)) + "fps", v[0] + 700, v[2] + 15, arcade.color.BLACK, 12,
-            #                  font_name=self.fn)
+            arcade.draw_text(self.cwd, v[0] + 700, v[2] + 75, arcade.color.BLACK, 12, font_name=self.fn)
+            arcade.draw_text(self.help, v[0] + 20, v[2] + 90, arcade.color.BLACK, 12, font_name=self.fn)
 
-        else:
+        if self.printFPS:
             dt = time.time() - self.prevtime
             dt = 0.001 if dt <= 0.001 else dt
             print("FPS---- " + str(1 / (dt)) + "fps")
@@ -565,8 +559,6 @@ class MyGame(arcade.Window):
             self.print_physic_elems(self.bike.bd, 'rw')
 
         self.prevtime = t
-
-        # self.player_list.draw()
 
     def on_key_press(self, key, modifiers):
         """Called whenever a key is pressed. """
@@ -586,20 +578,22 @@ class MyGame(arcade.Window):
         elif key == arcade.key.V:
             self.processPhysics = not self.processPhysics
         elif key == arcade.key.B:
-            self.bike.remove(self.physics_engine.space)
-            self.bike.create(self.physics_engine.space)
+            self.bike.remove(self.space)
+            self.bike.create(self.space)
         elif key == arcade.key.N:
             type = self.level.type[:]
-            self.level.remove(self.physics_engine.space)
+            self.level.remove(self.space)
             del self.level
             self.level = None
             if type == 'xml':
                 self.level = Level2()
             else:
                 self.level = Level()
-            self.level.create(self.physics_engine.space)
-        elif key == arcade.key.M:
-            self.printPhysicElems = not self.printPhysicElems
+            self.level.create(self.space)
+        elif key == arcade.key.Q:
+            self.printFPS = not self.printFPS
+        # elif key == arcade.key.M:
+        #     self.printPhysicElems = not self.printPhysicElems
         elif key == arcade.key.ESCAPE:
             self.close()
         elif key == arcade.key.D:
@@ -627,11 +621,8 @@ class MyGame(arcade.Window):
         # set angular velocity for every frame
         obj.angular_velocity = self.ang_vel
 
-        # TODO [EH] this will be threw out (??)
-        # TODO [EH] if during setup direct boot of pymunk will be set in place of self.physics_engine, then yep!
-        # self.physics_engine.space.step(1/60)
         if self.processPhysics:
-            self.physics_engine.step()
+            self.space.step(1/60)
 
         # Do the scrolling
         arcade.set_viewport(self.bike.bd['head'].position.x - SCREEN_WIDTH/2,
