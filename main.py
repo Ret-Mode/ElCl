@@ -5,12 +5,20 @@ import os
 import sys
 import math
 import time
-import pyglet
+
+# game imports
 import arcade
 import pymunk
 
-from typing import Optional
+# profiling
+import cProfile
+import pstats
+
+# file handling
 import xml.etree.ElementTree as ET
+
+# PyCharm type helper
+from typing import Optional
 
 # TODO [EH] shall it stay global? Move it into direct call?
 SCREEN_WIDTH = 1000
@@ -19,75 +27,137 @@ SCREEN_TITLE = "Platformer"
 
 EXEC_FOLDER = os.getcwd()
 
+class Util:
+    @staticmethod
+    def drawVectors(shapeDict):
+        for s in shapeDict:
+            shape = shapeDict[s]
+            if shape.__class__.__name__ == "Poly":
+                bpos = shape.body.position
+                poly = shape.get_vertices()
+                for v in range(len(poly) - 1):
+                    arcade.draw_line(poly[v][0] + bpos[0], poly[v][1] + bpos[1], poly[v + 1][0] + bpos[0],
+                                     poly[v + 1][1] + bpos[1], arcade.color.BLACK, 1)
+                arcade.draw_line(poly[-1][0] + bpos[0], poly[-1][1] + bpos[1], poly[0][0] + bpos[0],
+                                 poly[0][0] + bpos[1],
+                                 arcade.color.BLACK, 1)
+            elif shape.__class__.__name__ == "Segment":
+                bpos = shape.body.position
+                arcade.draw_line(shape.a[0] + bpos[0], shape.a[1] + bpos[1], shape.b[0] + bpos[0], shape.b[1] + bpos[1],
+                                 arcade.color.YELLOW, 1)
+            elif shape.__class__.__name__ == "Circle":
+                bpos = shape.body.position
+                arcade.draw_circle_filled(bpos[0], bpos[1], shape.radius,
+                                 arcade.color.GREEN, 1)
 
-class Level2:
-
+class Keys:
     def __init__(self):
-        self.bd = {}
-        self.shp = {}
-        self.cns = {}
-        self.type = "png"
-        self.t: Optional[arcade.Texture] = None
-        self.segments = []
-        self.density_x = 0
-        self.density_y = 0
-        self.scale_x = 2.0
-        self.scale_y = 2.0
-        self.alpha_threshold = 0.5
+        self.k = {arcade.key.W: False,
+                  arcade.key.S: False,
+                  arcade.key.A: False,
+                  arcade.key.D: False,
+                  arcade.key.E: False,
+                  arcade.key.SPACE: False
+                  }
 
-    def remove(self, space):
-        for v in self.cns:
-            space.remove(self.cns[v])
-        for v in self.shp:
-            space.remove(self.shp[v])
-        for v in self.bd:
-            space.remove(self.bd[v])
+    def setKey(self, key):
+        self.k[key] = True
 
-    def create(self, space):
-        self.getTexture(EXEC_FOLDER + '\\mapa.png').getMarchingCubes(60, 60).sendSegmentsToPhysics(space)
-        #PhysicsDumper('mapa.xml', EXEC_FOLDER).readData(self, space)
-
-    def getTexture(self, path):
-        self.t = arcade.load_texture(path)
-        return self
-
-    def getMarchingCubes(self, density_x: int, density_y: int):
-        def segment_func(v0, v1):
-            self.segments.append(((v0[0] * self.scale_x, v0[1] * self.scale_y),
-                                  (v1[0] * self.scale_x, v1[1] * self.scale_y)))
-
-        def sample_func(point):
-            x = int(point.x)
-            y = self.t.height - 1 - int(point.y)
-            # print(Level2.t.image.getpixel((x, y)))
-            # if x < Level2.t.width and y < Level2.height
-            return self.t.image.getpixel((x, y))[3] / 255
-
-        pymunk.autogeometry.march_soft(pymunk.BB(0, 0, self.t.width-1, self.t.height-1), density_x, density_y,
-                                       self.alpha_threshold, segment_func, sample_func)
-
-        return self
-
-    def sendSegmentsToPhysics(self, space):
-        self.bd['new'] = pymunk.Body(1.0, 1.0, pymunk.Body.STATIC)
-        space.add(self.bd['new'])
-        #obj.bd[name].position = px, py
-        for i in range(len(self.segments)):
-            self.shp[str(i)] = pymunk.Segment(self.bd['new'], self.segments[i][0], self.segments[i][1], 1)
-            space.add(self.shp[str(i)])
-            self.shp[str(i)].friction = 0.99
-            self.shp[str(i)].elasticity = 0.5
-
-    def draw(self):
-        arcade.draw_scaled_texture_rectangle(self.t.width, self.t.height, self.t, self.scale_x)
-        for i in self.segments:
-            arcade.draw_line(i[0][0], i[0][1], i[1][0], i[1][1], arcade.color.LEMON, 1)
+    def unsetKey(self, key):
+        self.k[key] = False
 
 
 # TODO [EH] move this to separate file
+# TODO [EH] add defaults to unnecessary fields
 class PhysicsDumper():
     def __init__(self, filename, filepath, sep='\\'):
         self.path = filepath + sep + filename
+
+    # TODO [EH] - chop this even more?
+    def dumpData(self, obj):
+        root = ET.Element('root')
+        root.set("type", self.type)
+
+        if self.type == 'vehicle':
+            root.set("speed", str(obj.speed))
+            bodies = ET.SubElement(root, 'bodies')
+            for b in obj.bd:
+                self.dumpBodyWithTex(bodies, b, obj)
+        elif self.type == 'autogeometry':
+            self.dumpAutogeometry(root, obj)
+        elif self.type == 'level':
+            root.set("player_x", str(obj.player_x))
+            root.set("player_y", str(obj.player_y))
+            bodies = ET.SubElement(root, 'bodies')
+            for b in obj.bd:
+                self.dumpBody(bodies, b, obj)
+        else:
+            bodies = ET.SubElement(root, 'bodies')
+            for b in obj.bd:
+                self.dumpBody(bodies, b, obj)
+
+        constraints = ET.SubElement(root, 'constraints')
+
+        for c in obj.cns:
+            self.dumpConstraints(constraints, c, obj)
+
+        # NOTE [EH] fix newlines
+        xml_s = ET.tostring(root, encoding="unicode").replace('</root>', '\n</root>')
+        for i in ['<bodies>', '</bodies>', '<bodies />', '<constraints>', '<constraints />', '</constraints>']:
+            xml_s = xml_s.replace(i, '\n '+ i)
+        for i in ['<body ', '</body>', '<body />', '<constraint ', '</constraint>', '<constraint /> ']:
+            xml_s = xml_s.replace(i, '\n  ' + i)
+        for i in ['<shape ', '</shape>', '<shape />']:
+            xml_s = xml_s.replace(i, '\n   ' + i)
+
+        f = open(self.path, "w")
+        f.write(str(xml_s))
+        f.close()
+
+    def dumpAutogeometry(self, rootElem: Optional[ET.Element], obj):
+        texName: Optional[str] = obj.t.name
+        if texName.startswith(EXEC_FOLDER):
+            texName = texName[len(EXEC_FOLDER):texName.find('.png')+4]
+            if texName[0] == '\\' or texName[0] == '/':
+                texName = texName[1:]
+        rootElem.set("texture", texName)
+        rootElem.set("density_x", str(obj.density_x))
+        rootElem.set("density_y", str(obj.density_y))
+        rootElem.set("scale", str(obj.scale))
+        rootElem.set("alpha_threshold", str(obj.alpha_threshold))
+        rootElem.set("friction", str(obj.friction))
+        rootElem.set("elasticity", str(obj.elasticity))
+
+        rootElem.set("player_x", str(obj.player_x))
+        rootElem.set("player_y", str(obj.player_y))
+
+    def dumpBodyWithTex(self, bodiesElem: Optional[ET.Element], b: str, obj):
+        body: Optional[pymunk.Body] = obj.bd[b]
+        texName: Optional[str] = obj.bdTex[b].texture.name
+        if texName.startswith(EXEC_FOLDER):
+            texName = texName[len(EXEC_FOLDER):texName.find('.png')+4]
+            if texName[0] == '\\' or texName[0] == '/':
+                texName = texName[1:]
+        xmlbody: Optional[ET.SubElement] = ET.SubElement(bodiesElem, 'body')
+        xmlbody.set("texture", texName)
+        xmlbody.set("texture_rotation", "True" if obj.bdTex[b].texture_rotation else 'False')
+        xmlbody.set("texture_scale", str(obj.bdTex[b].scale))
+        if body.body_type == pymunk.Body.DYNAMIC:
+            xmlbody.set("type", "DYNAMIC")
+        elif body.body_type == pymunk.Body.KINEMATIC:
+            xmlbody.set("type", "KINEMATIC")
+        elif body.body_type == pymunk.Body.STATIC:
+            xmlbody.set("type", "STATIC")
+        xmlbody.set("position_x", str(body.position.x))
+        xmlbody.set("position_y", str(body.position.y))
+        xmlbody.set("id", b)
+        xmlbody.set("mass", str(body.mass))
+        xmlbody.set("moment", str(body.moment))
+        for s in body.shapes:
+            for shp in obj.shp:
+                if obj.shp[shp] == s:
+                    self.dumpShape(xmlbody, shp, obj)
+                    break
 
     def dumpBody(self, bodiesElem: Optional[ET.Element], b: str, obj):
         body: Optional[pymunk.Body] = obj.bd[b]
@@ -222,21 +292,90 @@ class PhysicsDumper():
         constraint.set("max_bias", str(cns.max_bias))
         constraint.set("max_force", str(cns.max_force))
 
-    def dumpData(self, obj):
-        root = ET.Element('root')
-        bodies = ET.SubElement(root, 'bodies')
+    def readData(self, obj, space):
+        tree = ET.parse(self.path)
+        root = tree.getroot()
+        if 'type' in root.attrib and root.attrib["type"] == 'autogeometry':
+            self.readAutogeometry(root, obj)
+            return
 
-        for b in obj.bd:
-            self.dumpBody(bodies, b, obj)
+        if "player_x" in root.attrib and "player_y" in root.attrib:
+            obj.player_x = float(root.attrib["player_x"])
+            obj.player_y = float(root.attrib["player_y"])
 
-        constraints = ET.SubElement(root, 'constraints')
+        if 'speed' in root.attrib:
+            obj.speed = float(root.attrib['speed'])
 
-        for c in obj.cns:
-            self.dumpConstraints(constraints, c, obj)
+        for child in root:
+            if child.tag == 'bodies':
+                for body in child:
+                    if 'texture' in body.attrib:
+                        self.readBodyWithTex(body, obj, space)
+                    else:
+                        self.readBody(body, obj, space)
 
-        f = open(self.path, "w")
-        f.write(str(ET.tostring(root, encoding="unicode")))
-        f.close()
+        for child in root:
+            if child.tag == 'constraints':
+                for c in child:
+                    self.readConstraint(c, obj, space)
+
+    def readAutogeometry(self, root: Optional[ET.Element], obj):
+        obj.t = arcade.load_texture(EXEC_FOLDER + '\\' + root.attrib["texture"])
+        obj.density_x = int(root.attrib["density_x"])
+        obj.density_y = int(root.attrib["density_y"])
+        obj.scale = float(root.attrib["scale"])
+        obj.alpha_threshold = float(root.attrib["alpha_threshold"])
+        obj.friction = float(root.attrib["friction"])
+        obj.elasticity = float(root.attrib["elasticity"])
+
+        obj.player_x = float(root.attrib["player_x"])
+        obj.player_y = float(root.attrib["player_y"])
+
+    def readBodyWithTex(self, body, obj, space):
+        type = body.attrib['type']
+        if type == 'DYNAMIC':
+            type = pymunk.Body.DYNAMIC
+        elif type == "KINEMATIC":
+            type = pymunk.Body.KINEMATIC
+        else:
+            type = pymunk.Body.STATIC
+        px = float(body.attrib["position_x"])
+        py = float(body.attrib["position_y"])
+        name = body.attrib["id"]
+        mass = float(body.attrib["mass"]) if body.attrib["mass"] != 'inf' else pymunk.inf
+        moment = float(body.attrib["moment"]) if body.attrib["moment"] != 'inf' else pymunk.inf
+        obj.bd[name] = pymunk.Body(mass, moment, type)
+        space.add(obj.bd[name])
+        obj.bd[name].position = px, py
+
+        obj.bdTex[name]: arcade.Sprite = arcade.Sprite(EXEC_FOLDER + "\\" + body.attrib['texture'])
+        obj.bdTex[name].texture_rotation = True if body.attrib["texture_rotation"] == 'True' else False
+        obj.bdTex[name].scale = float(body.attrib['texture_scale'])
+        #obj.bdTex[name].texture_transform.scale(obj.bdTex[name].texture_scale_x, obj.bdTex[name].texture_scale_y)
+
+        for shape in body:
+            if shape.tag == 'shape':
+                self.readShape(shape, obj.bd[name], obj, space)
+
+    def readBody(self, body, obj, space):
+        type = body.attrib['type']
+        if type == 'DYNAMIC':
+            type = pymunk.Body.DYNAMIC
+        elif type == "KINEMATIC":
+            type = pymunk.Body.KINEMATIC
+        else:
+            type = pymunk.Body.STATIC
+        px = float(body.attrib["position_x"])
+        py = float(body.attrib["position_y"])
+        name = body.attrib["id"]
+        mass = float(body.attrib["mass"]) if body.attrib["mass"] != 'inf' else pymunk.inf
+        moment = float(body.attrib["moment"]) if body.attrib["moment"] != 'inf' else pymunk.inf
+        obj.bd[name] = pymunk.Body(mass, moment, type)
+        space.add(obj.bd[name])
+        obj.bd[name].position = px, py
+        for shape in body:
+            if shape.tag == 'shape':
+                self.readShape(shape, obj.bd[name], obj, space)
 
     def readShape(self, shape, body, obj, space):
         stype = shape.attrib['type']
@@ -304,8 +443,33 @@ class PhysicsDumper():
         cname = c.attrib['id']
         a = obj.bd[c.attrib['a']]
         b = obj.bd[c.attrib['b']]
-        # TODO [EH] add missing constraints
-        if cntype == 'GrooveJoint':
+
+        if cntype == 'PinJoint':
+            a_a_x = float(c.attrib['anchor_a_x'])
+            a_a_y = float(c.attrib['anchor_a_y'])
+            a_b_x = float(c.attrib['anchor_b_x'])
+            a_b_y = float(c.attrib['anchor_b_y'])
+            distance = float(c.attrib['distance'])
+            obj.cns[cname] = pymunk.PinJoint(a, b, (a_a_x, a_a_y), (a_b_x, a_b_y))
+            obj.cns[cname].distance = distance
+
+        elif cntype == 'SlideJoint':
+            a_a_x = float(c.attrib['anchor_a_x'])
+            a_a_y = float(c.attrib['anchor_a_y'])
+            a_b_x = float(c.attrib['anchor_b_x'])
+            a_b_y = float(c.attrib['anchor_b_y'])
+            min = float(c.attrib['min'])
+            max = float(c.attrib['max'])
+            obj.cns[cname] = pymunk.SlideJoint(a, b, (a_a_x, a_a_y), (a_b_x, a_b_y), min, max)
+
+        elif cntype == 'PivotJoint':
+            a_a_x = float(c.attrib['anchor_a_x'])
+            a_a_y = float(c.attrib['anchor_a_y'])
+            a_b_x = float(c.attrib['anchor_b_x'])
+            a_b_y = float(c.attrib['anchor_b_y'])
+            obj.cns[cname] = pymunk.PivotJoint(a, b, (a_a_x, a_a_y), (a_b_x, a_b_y))
+
+        elif cntype == 'GrooveJoint':
             g_a_x = float(c.attrib['groove_a_x'])
             g_a_y = float(c.attrib['groove_a_y'])
             g_b_x = float(c.attrib['groove_b_x'])
@@ -325,37 +489,58 @@ class PhysicsDumper():
             obj.cns[cname] = pymunk.DampedSpring(a, b, (a_a_x, a_a_y), (a_b_x, a_b_y), rest_length,
                                                  stiffness, damping)
 
+        elif cntype == 'DampedRotarySpring':
+            a_a_x = float(c.attrib['anchor_a_x'])
+            a_a_y = float(c.attrib['anchor_a_y'])
+            a_b_x = float(c.attrib['anchor_b_x'])
+            a_b_y = float(c.attrib['anchor_b_y'])
+            rest_angle = float(c.attrib['rest_angle'])
+            stiffness = float(c.attrib['stiffness'])
+            damping = float(c.attrib['damping'])
+            obj.cns[cname] = pymunk.DampedSpring(a, b, (a_a_x, a_a_y), (a_b_x, a_b_y), rest_angle,
+                                                 stiffness, damping)
+
+        elif cntype == 'RotaryLimitJoint':
+            min = float(c.attrib['min'])
+            max = float(c.attrib['max'])
+            obj.cns[cname] = pymunk.RotaryLimitJoint(a, b, min, max)
+
+        elif cntype == 'RatchetJoint':
+            phase = float(c.attrib['phase'])
+            ratchet = float(c.attrib['ratchet'])
+            angle = float(c.attrib['angle'])
+            obj.cns[cname] = pymunk.RatchetJoint(a, b, phase, ratchet)
+            obj.cns[cname].angle = angle
+
+        elif cntype == 'GearJoint':
+            phase = float(c.attrib['phase'])
+            ratio = float(c.attrib['ratio'])
+            obj.cns[cname] = pymunk.GearJoint(a, b, phase, ratio)
+
+        elif cntype == 'SimpleMotor':
+            rate = float(c.attrib['rate'])
+            obj.cns[cname] = pymunk.GearJoint(a, b, rate)
+
         space.add(obj.cns[cname])
         error_bias = float(c.attrib["error_bias"]) if c.attrib["error_bias"] != 'inf' else pymunk.inf
         max_bias = float(c.attrib["max_bias"]) if c.attrib["max_bias"] != 'inf' else pymunk.inf
         max_force = float(c.attrib["max_force"]) if c.attrib["max_force"] != 'inf' else pymunk.inf
+        self_collide = int(c.attrib["collide_bodies"])
         obj.cns[cname].error_bias = error_bias
         obj.cns[cname].max_bias = max_bias
         obj.cns[cname].max_force = max_force
-
-    def readData(self, obj, space):
-        tree = ET.parse(self.path)
-        root = tree.getroot()
-        for child in root:
-            if child.tag == 'bodies':
-                for body in child:
-                    self.readBody(body, obj, space)
-
-        for child in root:
-            if child.tag == 'constraints':
-                for c in child:
-                    self.readConstraint(c, obj, space)
+        obj.cns[cname].collide_bodies = self_collide
 
 
 class Level:
-
-    # TODO [EH] add reset of level per key press
 
     def __init__(self):
         self.bd = {}
         self.shp = {}
         self.cns = {}
-        self.type = "xml"
+        self.type = "level"
+        self.player_x = 300
+        self.player_y = 300
 
     def remove(self, space):
         for v in self.cns:
@@ -367,28 +552,92 @@ class Level:
 
     def create(self, space):
 
-        PhysicsDumper('_level.xml', EXEC_FOLDER).readData(self, space)
-        #PhysicsDumper('_level.xml', EXEC_FOLDER).dumpData(self)
+        PhysicsDumper('level_4.xml', EXEC_FOLDER).readData(self, space)
+        #PhysicsDumper('level_4.xml', EXEC_FOLDER).dumpData(self)
 
-    def draw(self):
-        for s in self.shp:
-            shape = self.shp[s]
-            if shape.__class__.__name__ == "Poly":
-                bpos = shape.body.position
-                poly = shape.get_vertices()
-                for v in range(len(poly) - 1):
-                    arcade.draw_line(poly[v][0] + bpos[0], poly[v][1] + bpos[1], poly[v + 1][0] + bpos[0],
-                                     poly[v + 1][1] + bpos[1], arcade.color.BLACK, 1)
-                arcade.draw_line(poly[-1][0] + bpos[0], poly[-1][1] + bpos[1], poly[0][0] + bpos[0],
-                                 poly[0][0] + bpos[1],
-                                 arcade.color.BLACK, 1)
-            elif shape.__class__.__name__ == "Segment":
-                bpos = shape.body.position
-                arcade.draw_line(shape.a[0] + bpos[0], shape.a[1] + bpos[1], shape.b[0] + bpos[0], shape.b[1] + bpos[1],
-                                 arcade.color.BLACK, 1)
+    def draw(self, drawVectors=True, drawGraphics=True):
+
+        if drawVectors:
+            Util.drawVectors(self.shp)
 
 
-class Bike:
+# autogeometry level
+# TODO [EH] join it with Level Class
+class Level2:
+
+    def __init__(self):
+        self.bd = {}
+        self.shp = {}
+        self.cns = {}
+        self.type = "autogeometry"
+        self.t: Optional[arcade.Texture] = None
+        self.segments = []
+        self.density_x = 60
+        self.density_y = 60
+        self.scale = 2.0
+        self.alpha_threshold = 0.5
+        self.friction = 5
+        self.elasticity = 0.0
+        self.player_x = 300
+        self.player_y = 300
+
+    def remove(self, space):
+        for v in self.cns:
+            space.remove(self.cns[v])
+        for v in self.shp:
+            space.remove(self.shp[v])
+        for v in self.bd:
+            space.remove(self.bd[v])
+        self.t = None
+
+    def create(self, space):
+        PhysicsDumper('level_3.xml', EXEC_FOLDER).readData(self, space)
+        self.getMarchingCubes(self.density_x, self.density_y).sendSegmentsToPhysics(space)
+        #PhysicsDumper('level_3.xml', EXEC_FOLDER).dumpData(self)
+
+    def getTexture(self, path):
+        self.t = arcade.load_texture(path)
+        return self
+
+    def getMarchingCubes(self, density_x: int, density_y: int):
+        def segment_func(v0, v1):
+            self.segments.append(((v0[0] * self.scale, v0[1] * self.scale),
+                                  (v1[0] * self.scale, v1[1] * self.scale)))
+
+        def sample_func(point):
+            x = int(point.x)
+            y = self.t.height - 1 - int(point.y)
+            return self.t.image.getpixel((x, y))[3] / 255
+
+        # TODO [EH] - add parameter whether march_soft or march_hard will be performed
+        pymunk.autogeometry.march_soft(pymunk.BB(0, 0, self.t.width-1, self.t.height-1), density_x, density_y,
+                                       self.alpha_threshold, segment_func, sample_func)
+
+        return self
+
+    def sendSegmentsToPhysics(self, space):
+        # TODO [EH] change this body id into smthng else ?:P
+        # TODO [EH] Should it be dumped to xml with texture setup?
+        self.bd['new'] = pymunk.Body(1.0, 1.0, pymunk.Body.STATIC)
+        space.add(self.bd['new'])
+        for i in range(len(self.segments)):
+            self.shp[str(i)] = pymunk.Segment(self.bd['new'], self.segments[i][0], self.segments[i][1], 1)
+            space.add(self.shp[str(i)])
+            self.shp[str(i)].friction = self.friction
+            self.shp[str(i)].elasticity = self.elasticity
+
+    def draw(self, drawVectors=True, drawGraphics=True):
+        if drawGraphics:
+            # TODO [EH] how to scale for nearest neighbour?
+            arcade.draw_scaled_texture_rectangle(self.t.width*self.scale/2, self.t.height*self.scale/2, self.t, self.scale)
+        if drawVectors:
+            # seems faster than get all of the data from shape...
+            # TODO [EH] needs to be profiled i guess
+            for i in self.segments:
+                arcade.draw_line(i[0][0], i[0][1], i[1][0], i[1][1], arcade.color.LEMON, 1)
+
+
+class Vehicle:
 
     # TODO [EH] change this class into Vehicle
 
@@ -396,23 +645,13 @@ class Bike:
         self.bd = {}
         self.shp = {}
         self.cns = {}
-        self.dir = 1  # TODO [EH] create some normal directions maybe, now 1 is left wheel, -1 is right wheel
-        self.wheelTex = arcade.Sprite(EXEC_FOLDER + "\\2.png")
-        self.bodyTex = [arcade.Sprite(EXEC_FOLDER + "\\1.png"), arcade.Sprite(EXEC_FOLDER + "\\1.png")]
-        self.headTex = [arcade.Sprite(EXEC_FOLDER + "\\3.png"), arcade.Sprite(EXEC_FOLDER + "\\3.png")]
-        self.bodyTex[1].texture_transform.scale(-1, 1)
-        self.headTex[1].texture_transform.scale(-1, 1)
-        self.wheelTex.center_x = self.wheelTex.width//2
-        self.wheelTex.center_y = self.wheelTex.height//2
-
-        self.bodyTex[0].center_x = self.bodyTex[0].width//2
-        self.bodyTex[0].center_y = 0
-        self.bodyTex[1].center_x = self.bodyTex[1].width//2
-        self.bodyTex[1].center_y = 0
-        self.headTex[0].center_x = self.headTex[0].width//2
-        self.headTex[0].center_y = self.headTex[0].height//2
-        self.headTex[1].center_x = self.headTex[1].width//2
-        self.headTex[1].center_y = self.headTex[1].height//2
+        self.bdTex = {}
+        self.dir = 1  # TODO [EH] create some normal directions, now 1 is left wheel, -1 is right wheel
+        self.prevDir = 1
+        self.differential = False
+        self.speed = 20
+        self.acc_l = 0
+        self.acc_r = 0
 
     def remove(self, space):
         for v in self.cns:
@@ -421,42 +660,128 @@ class Bike:
             space.remove(self.shp[v])
         for v in self.bd:
             space.remove(self.bd[v])
+        for v in self.bdTex:
+            self.bdTex[v].kill()
 
     def create(self, space):
-        PhysicsDumper('_bike.xml', EXEC_FOLDER).readData(self, space)
-        #PhysicsDumper('_bike.xml', EXEC_FOLDER).dumpData(self)
+        PhysicsDumper('car_2.xml', EXEC_FOLDER).readData(self, space)
+        #PhysicsDumper('car_2.xml', EXEC_FOLDER).dumpData(self)
+        if self.dir < 0:
+            self.flip()
+            self.dir = 1
 
-    def draw(self):
-        # for s in self.shp:
-        #     shape = self.shp[s]
-        #     bpos = shape.body.position
-        #     arcade.draw_circle_filled(shape.offset[0] + bpos[0], shape.offset[1] + bpos[1], shape.radius,
-        #                               arcade.color.CYAN)
-        self.wheelTex.set_position(self.bd['lw'].position.x,self.bd['lw'].position.y)
-        self.wheelTex.angle = self.bd['lw'].angle * 180/math.pi
-        self.wheelTex.draw()
+    def flip(self):
+        for n in self.bdTex:
+            if self.bdTex[n].texture_rotation:
+                # TODO [EH] change to sprite flipping, not whole texture
+                # TODO [EH] ... but weirdly sprite got one scale :D
+                self.bdTex[n].texture_transform.scale(-1, 1)
 
-        self.wheelTex.set_position(self.bd['rw'].position.x,self.bd['rw'].position.y)
-        self.wheelTex.angle = self.bd['rw'].angle * 180/math.pi
-        self.wheelTex.draw()
+    def moveTo(self, x, y):
+        for i in self.bd:
+            self.bd[i].position += (x, y)
 
-        i = 1
-        if self.dir > 0:
-            i = 0
+    def draw(self, drawVectors=True, drawGraphics=True):
 
-        self.bodyTex[i].angle = self.bd['head'].angle * 180/math.pi
-        self.bodyTex[i].set_position(self.bd['head'].position.x + 20 * math.sin(self.bd['head'].angle),
-                                     self.bd['head'].position.y - 20 * math.cos(self.bd['head'].angle))
+        if self.dir != self.prevDir:
+            self.flip()
+            self.prevDir = self.dir
 
-        self.bodyTex[i].draw()
-        self.bodyTex[i].draw()
+        if drawVectors:
+            Util.drawVectors(self.shp)
 
-        self.headTex[i].angle = self.bd['head'].angle * 180/math.pi
-        self.headTex[i].set_position(self.bd['head'].position.x,
-                                     self.bd['head'].position.y)
+        if drawGraphics:
+            for i in ['head', 'lw', 'rw']:
+                self.bdTex[i].set_position(self.bd[i].position.x, self.bd[i].position.y)
+                self.bdTex[i].angle = self.bd[i].angle * 180 / math.pi
+                self.bdTex[i].draw()
 
-        self.headTex[i].draw()
-        self.headTex[i].draw()
+    def update(self, key = None):
+
+        if key:
+            if key.k[arcade.key.E]:
+                self.differential = not self.differential
+                key.unsetKey(arcade.key.E)
+
+            if key.k[arcade.key.W]:
+                if self.dir > 0:
+                    curr_speed = -1.0 * self.speed
+                    self.acc_l -= 0.05
+                    if self.acc_l < curr_speed:
+                        self.acc_l = curr_speed
+                    self.bd['lw'].angular_velocity += self.acc_l
+                    if self.bd['lw'].angular_velocity < curr_speed:
+                        self.bd['lw'].angular_velocity = curr_speed
+                    if self.differential:
+                        self.acc_r -= 0.05
+                        if self.acc_r < curr_speed:
+                            self.acc_r = curr_speed
+                        self.bd['rw'].angular_velocity += self.acc_r
+                        if self.bd['rw'].angular_velocity < curr_speed:
+                            self.bd['rw'].angular_velocity = curr_speed
+                else:
+                    curr_speed = self.speed
+                    self.acc_r += 0.05
+                    if self.acc_r > curr_speed:
+                        self.acc_r = curr_speed
+                    self.bd['rw'].angular_velocity += self.acc_r
+                    if self.bd['rw'].angular_velocity > curr_speed:
+                        self.bd['rw'].angular_velocity = curr_speed
+                    if self.differential:
+                        self.acc_l += 0.05
+                        if self.acc_l > curr_speed:
+                            self.acc_l = curr_speed
+                        self.bd['lw'].angular_velocity += self.acc_l
+                        if self.bd['lw'].angular_velocity > curr_speed:
+                            self.bd['lw'].angular_velocity = curr_speed
+
+            elif key.k[arcade.key.S]:
+                if self.dir > 0:
+                    curr_speed = self.speed / 3
+                    self.acc_l += 0.02
+                    if self.acc_l > curr_speed:
+                        self.acc_l = curr_speed
+                    self.bd['lw'].angular_velocity += self.acc_l
+                    if self.bd['lw'].angular_velocity > curr_speed:
+                        self.bd['lw'].angular_velocity = curr_speed
+                    if self.differential:
+                        self.acc_r += 0.02
+                        if self.acc_r > curr_speed:
+                            self.acc_r = curr_speed
+                        self.bd['rw'].angular_velocity += self.acc_r
+                        if self.bd['rw'].angular_velocity > curr_speed:
+                            self.bd['rw'].angular_velocity = curr_speed
+                else:
+                    curr_speed = -1 * self.speed / 3
+                    self.acc_r -= 0.02
+                    if self.acc_r < curr_speed:
+                        self.acc_r = curr_speed
+                    self.bd['rw'].angular_velocity += self.acc_r
+                    if self.bd['rw'].angular_velocity < curr_speed:
+                        self.bd['rw'].angular_velocity = curr_speed
+                    if self.differential:
+                        self.acc_r -= 0.02
+                        if self.acc_l < curr_speed:
+                            self.acc_l = curr_speed
+                        self.bd['lw'].angular_velocity += self.acc_l
+                        if self.bd['lw'].angular_velocity < curr_speed:
+                            self.bd['lw'].angular_velocity = curr_speed
+
+            else:
+                self.acc_l = 0
+                self.acc_r = 0
+
+            if key.k[arcade.key.D]:
+                self.bd['head'].apply_force_at_local_point((2120, 0), (0, 30))
+                self.bd['head'].apply_force_at_local_point((-2120, 0), (0, -30))
+            if key.k[arcade.key.A]:
+                self.bd['head'].apply_force_at_local_point((-2120, 0), (0, 30))
+                self.bd['head'].apply_force_at_local_point((2120, 0), (0, -30))
+            if key.k[arcade.key.SPACE]:
+                self.dir *= -1
+
+            key.unsetKey(arcade.key.SPACE)
+
 
 class MyGame(arcade.Window):
     """
@@ -470,12 +795,10 @@ class MyGame(arcade.Window):
 
         arcade.set_background_color(arcade.csscolor.CORNFLOWER_BLUE)
 
-        # display mechanism in arcade
-        self.player_list: Optional[arcade.SpriteList] = None
-
+        self.space = None
         self.bike = None
         self.level = None
-
+        self.key = Keys()
         self.ang_vel = 0
         self.music = None
         self.prevtime = time.time()
@@ -486,14 +809,16 @@ class MyGame(arcade.Window):
         self.processPhysics = True
         self.printFPS = False
         self.drawGraphics = True
+        self.drawVectors = False
         self.drawText = True
         self.printPhysicElems = False
 
-        self.help = ''''w' and 's' to steer, ' ' to change wheels,
+        self.help = ''''W' and 'S' to steer, ' ' to change wheels,
+'A' and 'D' to rotate, 'E' to lock/unlock differential,
 'Z' to dump level and bike to xml, 'X' to hide text,
 'C' to hide graphics, 'V' to ignore physics
 'B' to reload bike, 'N' to reload level
-'Q' to print FPS in console'''
+'Q' to print FPS in console, 'M' to display vectors'''
 
         print(self.help)
         self.fn = EXEC_FOLDER + '\\Pacifico.ttf'
@@ -505,17 +830,18 @@ class MyGame(arcade.Window):
         # TODO [EH] how does this work? Should 1 game have one Window? if yes, when to call this func (how load
         # new levels? Should main loop be stopped? :|
 
-        # TODO [EH] remove this (then direct call to pymunk step/update will need to be added to main loop)
         self.space = pymunk.Space()
         self.space.gravity = (0, -100)
         self.space.damping = 1
 
-        self.bike = Bike()
         self.level = Level2()
+        self.level.create(self.space)
+        self.bike = Vehicle()
+        self.bike.create(self.space)
+        self.bike.moveTo(self.level.player_x, self.level.player_y)
 
         #PhysicsDumper('_level2.xml', EXEC_FOLDER).dumpData(self.level2)
-        self.bike.create(self.space)
-        self.level.create(self.space)
+
         self.music = arcade.Sound(":resources:music/1918.mp3", streaming=True)
         self.music.play(0.02)
 
@@ -541,10 +867,9 @@ class MyGame(arcade.Window):
         arcade.start_render()
 
         v = arcade.get_viewport()
-        if self.drawGraphics:
 
-            self.level.draw()
-            self.bike.draw()
+        self.level.draw(self.drawVectors, self.drawGraphics)
+        self.bike.draw(self.drawVectors, self.drawGraphics)
 
         if self.drawText:
             arcade.draw_text(self.cwd, v[0] + 700, v[2] + 75, arcade.color.BLACK, 12, font_name=self.fn)
@@ -562,15 +887,15 @@ class MyGame(arcade.Window):
 
     def on_key_press(self, key, modifiers):
         """Called whenever a key is pressed. """
-        if key == arcade.key.W:
-            self.ang_vel = -20 * self.bike.dir
-        elif key == arcade.key.S:
-            self.ang_vel = 20 * self.bike.dir
-        elif key == arcade.key.SPACE:
-            self.bike.dir *= -1
+
+        # TODO [EH] handle car :P
+        if key in self.key.k:
+            self.key.setKey(key)
+
+        # other stuff
         elif key == arcade.key.Z:
-            PhysicsDumper('bike.xml', EXEC_FOLDER).dumpData(self.bike)
-            PhysicsDumper('level.xml', EXEC_FOLDER).dumpData(self.level)
+            PhysicsDumper('dump_bike.xml', EXEC_FOLDER).dumpData(self.bike)
+            PhysicsDumper('dump_level.xml', EXEC_FOLDER).dumpData(self.level)
         elif key == arcade.key.X:
             self.drawText = not self.drawText
         elif key == arcade.key.C:
@@ -580,51 +905,44 @@ class MyGame(arcade.Window):
         elif key == arcade.key.B:
             self.bike.remove(self.space)
             self.bike.create(self.space)
+            self.bike.moveTo(self.level.player_x, self.level.player_y)
         elif key == arcade.key.N:
             type = self.level.type[:]
             self.level.remove(self.space)
             del self.level
             self.level = None
-            if type == 'xml':
+            if type == 'level':
                 self.level = Level2()
             else:
                 self.level = Level()
             self.level.create(self.space)
         elif key == arcade.key.Q:
             self.printFPS = not self.printFPS
-        # elif key == arcade.key.M:
-        #     self.printPhysicElems = not self.printPhysicElems
+        elif key == arcade.key.M:
+            self.drawVectors = not self.drawVectors
         elif key == arcade.key.ESCAPE:
             self.close()
-        elif key == arcade.key.D:
-            self.bike.bd['rw'].apply_force_at_local_point((11120, -11120.0), (0, -10))
-        elif key == arcade.key.A:
-            self.bike.bd['rw'].apply_force_at_local_point((-11120, -11120.0), (0, -10))
+
+    def on_key_release(self, key: int, modifiers: int):
+
+        if key in self.key.k:
+            self.key.unsetKey(key)
 
     def on_close(self):
         print("Closing this")
         self.close()
 
-    def on_key_release(self, key, modifiers):
-        """Called when the user releases a key. """
-        self.ang_vel = 0
-
     def on_update(self, delta_time):
         """ Movement and game logic """
         t = time.time()
         self.update_time = delta_time
-        if self.bike.dir > 0:
-            obj = self.bike.bd['lw']
-        else:
-            obj = self.bike.bd['rw']
 
-        # set angular velocity for every frame
-        obj.angular_velocity = self.ang_vel
+        self.bike.update(self.key)
 
         if self.processPhysics:
             self.space.step(1/60)
 
-        # Do the scrolling
+        # Do the view scrolling
         arcade.set_viewport(self.bike.bd['head'].position.x - SCREEN_WIDTH/2,
                             self.bike.bd['head'].position.x + SCREEN_WIDTH/2,
                             self.bike.bd['head'].position.y - SCREEN_HEIGHT/2,
@@ -635,7 +953,6 @@ class MyGame(arcade.Window):
 
 def main():
     """ Main method """
-    # TODO [EH] -> check in sources what is this and could it be changed into direct calls?
     window = MyGame()
     window.setup()
     arcade.run()
@@ -645,6 +962,8 @@ if __name__ == "__main__":
     if not sys.executable.endswith("python.exe"):
         EXEC_FOLDER = sys.executable[:sys.executable.rfind('\\')]
     if len(sys.argv) > 1:
-        pass
+        if sys.argv[1] == "-profile":
+            cProfile.run("main()", "main_prof")
+            pstats.Stats('main_prof').strip_dirs().sort_stats(pstats.SortKey.CUMULATIVE, pstats.SortKey.TIME).print_stats()
     else:
         main()
