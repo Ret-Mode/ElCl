@@ -50,6 +50,7 @@ class Util:
                 arcade.draw_circle_filled(bpos[0], bpos[1], shape.radius,
                                  arcade.color.GREEN, 1)
 
+
 class Keys:
     def __init__(self):
         self.k = {arcade.key.W: False,
@@ -959,6 +960,7 @@ def main():
 
 
 if __name__ == "__main__":
+    # correct execution working dir when frozen by pyinstaller
     if not sys.executable.endswith("python.exe"):
         EXEC_FOLDER = sys.executable[:sys.executable.rfind('\\')]
     if len(sys.argv) > 1:

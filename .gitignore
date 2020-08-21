@@ -4,3 +4,9 @@
 /dist/**/*
 /guy.png
 /guy.py
+*.png
+*.xml
+*.zip
+*_prof
+*.spec
+*.ttf
