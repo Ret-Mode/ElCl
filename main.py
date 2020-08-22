@@ -47,7 +47,9 @@ class Util:
                 arcade.draw_line(x, y, x2, y2, arcade.color.BLACK, 1)
             elif shape.__class__.__name__ == "Segment":
                 bpos = shape.body.position
-                arcade.draw_line(shape.a[0] + bpos[0], shape.a[1] + bpos[1], shape.b[0] + bpos[0], shape.b[1] + bpos[1],
+                x, y = shape.a.rotated(shape.body.angle) + bpos
+                x2, y2 = shape.b.rotated(shape.body.angle) + bpos
+                arcade.draw_line(x, y, x2, y2,
                                  arcade.color.YELLOW, 1)
             elif shape.__class__.__name__ == "Circle":
                 bpos = shape.body.position
@@ -533,9 +535,11 @@ class PhysicsDumper():
             a_a_y = float(c.attrib['anchor_a_y'])
             a_b_x = float(c.attrib['anchor_b_x'])
             a_b_y = float(c.attrib['anchor_b_y'])
-            distance = float(c.attrib['distance'])
             obj.cns[cname] = pymunk.PinJoint(a, b, (a_a_x, a_a_y), (a_b_x, a_b_y))
-            obj.cns[cname].distance = distance
+            if 'distance' in c.attrib:
+                distance = float(c.attrib['distance'])
+                obj.cns[cname].distance = distance
+
 
         elif cntype == 'SlideJoint':
             a_a_x = float(c.attrib['anchor_a_x'])
