@@ -87,6 +87,39 @@ class Util:
     def getFileFromOtherFilePath(filePath, file):
         return Util.getFolderFromFilePath(filePath) + '\\' + file
 
+    @staticmethod
+    def flipConstraints(cnsDict, mainBody):
+        # TODO [EH] now just one pass of update (chains like objects will end up crappy, byt we don't
+        # TODO [EH] use them yet
+        bodiesToFlip = []
+        ang_vel = mainBody.angular_velocity
+        for cnsId, cnsInternals in cnsDict.items():
+            space = cnsInternals.a.space
+            space.remove(cnsInternals)
+            if cnsInternals.__class__.__name__ in ["PinJoint", "SlideJoint", "PivotJoint", "DampedSpring"]:
+                cnsInternals.anchor_b = (-cnsInternals.anchor_b.x, cnsInternals.anchor_b.y)
+                cnsInternals.anchor_a = (-cnsInternals.anchor_a.x, cnsInternals.anchor_a.y)
+                if cnsInternals.b not in bodiesToFlip:
+                    bodiesToFlip.append(cnsInternals.b)
+            elif cnsInternals.__class__.__name__ == "GrooveJoint":
+                cnsInternals.anchor_b = (-cnsInternals.anchor_b.x, cnsInternals.anchor_b.y)
+                cnsInternals.groove_a = (-cnsInternals.groove_a.x, cnsInternals.groove_a.y)
+                cnsInternals.groove_b = (-cnsInternals.groove_b.x, cnsInternals.groove_b.y)
+                if cnsInternals.b not in bodiesToFlip:
+                    bodiesToFlip.append(cnsInternals.b)
+            space.add(cnsInternals)
+        for bodyToFlip in bodiesToFlip:
+            space.remove(bodyToFlip)
+
+            dest = bodyToFlip.position - mainBody.position
+            dest.rotate(-mainBody.angle)
+            dest.x *= -1
+            dest.rotate(mainBody.angle)
+            bodyToFlip.position = dest + mainBody.position
+            #bodyToFlip.angle *= -1
+
+            space.add(bodyToFlip)
+        mainBody.angular_velocity = ang_vel
 
 
 class Keys:
@@ -288,6 +321,7 @@ class PhysicsDumper():
             constraint.set("min", str(cns.min))
 
         elif cns.__class__.__name__ == "PivotJoint":
+            constraint.set("type", "PivotJoint")
             constraint.set("anchor_a_x", str(cns.anchor_a[0]))
             constraint.set("anchor_a_y", str(cns.anchor_a[1]))
             constraint.set("anchor_b_x", str(cns.anchor_b[0]))
@@ -727,19 +761,23 @@ class Vehicle:
                 # TODO [EH] change to sprite flipping, not whole texture
                 # TODO [EH] ... but weirdly sprite got one scale :D
                 self.bdTex[n].texture_transform.scale(-1, 1)
-        self.bdTex['lw'], self.bdTex['rw'] = self.bdTex['rw'], self.bdTex['lw']
-        lshapes = self.bd['lw'].shapes
-        rshapes = self.bd['rw'].shapes
-        # TODO [EH] not good but works
-        # TODO [EH] swap shapes, leave bodies as is. This needs to be changed (along with acceleration)
-        for shape in lshapes:
-            shape.space.remove(shape)
-            shape.body = self.bd['rw']
-            shape.space.add(shape)
-        for shape in rshapes:
-            shape.space.remove(shape)
-            shape.body = self.bd['lw']
-            shape.space.add(shape)
+
+        Util.flipConstraints(self.cns, self.bd['head'])
+        # self.bdTex['lw'], self.bdTex['rw'] = self.bdTex['rw'], self.bdTex['lw']
+        # lshapes = self.bd['lw'].shapes
+        # rshapes = self.bd['rw'].shapes
+        # # TODO [EH] not good but works
+        # # TODO [EH] swap shapes, leave bodies as is. This needs to be changed (along with acceleration)
+        # for shape in lshapes:
+        #     shape.space.remove(shape)
+        #     shape.body = self.bd['rw']
+        #     shape.space.add(shape)
+        # for shape in rshapes:
+        #     shape.space.remove(shape)
+        #     shape.body = self.bd['lw']
+        #     shape.space.add(shape)
+        # for id, cns in self.cns.items():
+
         # TODO [EH] Swap constraints and bodies
 
     def moveTo(self, x, y):
@@ -772,68 +810,22 @@ class Vehicle:
 
             if key.k[arcade.key.W]:
                 if self.dir > 0:
-                    curr_speed = -1.0 * self.speed
-                    self.acc_l -= 0.05
-                    if self.acc_l < curr_speed:
-                        self.acc_l = curr_speed
-                    self.bd['lw'].angular_velocity += self.acc_l
-                    if self.bd['lw'].angular_velocity < curr_speed:
-                        self.bd['lw'].angular_velocity = curr_speed
-                    if self.differential:
-                        self.acc_r -= 0.05
-                        if self.acc_r < curr_speed:
-                            self.acc_r = curr_speed
-                        self.bd['rw'].angular_velocity += self.acc_r
-                        if self.bd['rw'].angular_velocity < curr_speed:
-                            self.bd['rw'].angular_velocity = curr_speed
+                    self.acc_l = max(self.acc_l - 0.05, -self.speed)
+                    self.bd['lw'].angular_velocity = max(self.bd['lw'].angular_velocity + self.acc_l, -self.speed)
                 else:
-                    curr_speed = self.speed
-                    self.acc_r += 0.05
-                    if self.acc_r > curr_speed:
-                        self.acc_r = curr_speed
-                    self.bd['rw'].angular_velocity += self.acc_r
-                    if self.bd['rw'].angular_velocity > curr_speed:
-                        self.bd['rw'].angular_velocity = curr_speed
-                    if self.differential:
-                        self.acc_l += 0.05
-                        if self.acc_l > curr_speed:
-                            self.acc_l = curr_speed
-                        self.bd['lw'].angular_velocity += self.acc_l
-                        if self.bd['lw'].angular_velocity > curr_speed:
-                            self.bd['lw'].angular_velocity = curr_speed
-
+                    self.acc_l = min(self.acc_l + 0.05, self.speed)
+                    self.bd['lw'].angular_velocity = min(self.bd['lw'].angular_velocity + self.acc_l, self.speed)
+                if self.differential:
+                    self.bd['rw'].angular_velocity = self.bd['lw'].angular_velocity
             elif key.k[arcade.key.S]:
                 if self.dir > 0:
-                    curr_speed = self.speed / 3
-                    self.acc_l += 0.02
-                    if self.acc_l > curr_speed:
-                        self.acc_l = curr_speed
-                    self.bd['lw'].angular_velocity += self.acc_l
-                    if self.bd['lw'].angular_velocity > curr_speed:
-                        self.bd['lw'].angular_velocity = curr_speed
-                    if self.differential:
-                        self.acc_r += 0.02
-                        if self.acc_r > curr_speed:
-                            self.acc_r = curr_speed
-                        self.bd['rw'].angular_velocity += self.acc_r
-                        if self.bd['rw'].angular_velocity > curr_speed:
-                            self.bd['rw'].angular_velocity = curr_speed
+                    self.acc_l = min(self.acc_l + 0.025, self.speed/2)
+                    self.bd['lw'].angular_velocity = min(self.bd['lw'].angular_velocity + self.acc_l, self.speed/2)
                 else:
-                    curr_speed = -1 * self.speed / 3
-                    self.acc_r -= 0.02
-                    if self.acc_r < curr_speed:
-                        self.acc_r = curr_speed
-                    self.bd['rw'].angular_velocity += self.acc_r
-                    if self.bd['rw'].angular_velocity < curr_speed:
-                        self.bd['rw'].angular_velocity = curr_speed
-                    if self.differential:
-                        self.acc_r -= 0.02
-                        if self.acc_l < curr_speed:
-                            self.acc_l = curr_speed
-                        self.bd['lw'].angular_velocity += self.acc_l
-                        if self.bd['lw'].angular_velocity < curr_speed:
-                            self.bd['lw'].angular_velocity = curr_speed
-
+                    self.acc_l = max(self.acc_l - 0.025, self.speed/2)
+                    self.bd['lw'].angular_velocity = max(self.bd['lw'].angular_velocity + self.acc_l, -self.speed/2)
+                if self.differential:
+                    self.bd['rw'].angular_velocity = self.bd['lw'].angular_velocity
             else:
                 self.acc_l = 0
                 self.acc_r = 0
