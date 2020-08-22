@@ -90,10 +90,11 @@ class Util:
         return Util.getFolderFromFilePath(filePath) + '\\' + file
 
     @staticmethod
-    def flipConstraints(cnsDict, mainBody):
+    def flipConstraints(cnsDict, mainBody, angleCorrection):
         # TODO [EH] now just one pass of update (chains like objects will end up crappy, byt we don't
         # TODO [EH] use them yet
         bodiesToFlip = []
+        mainBody.angle -= angleCorrection
         ang_vel = mainBody.angular_velocity
         for cnsId, cnsInternals in cnsDict.items():
             space = cnsInternals.a.space
@@ -121,6 +122,7 @@ class Util:
             #bodyToFlip.angle *= -1
 
             space.add(bodyToFlip)
+
         mainBody.angular_velocity = ang_vel
 
 
@@ -148,7 +150,7 @@ class PhysicsDumper():
         pass
 
     # TODO [EH] - chop this even more?
-    def dumpData(self, path, obj):
+    def dumpData(self, path, obj, fullDump=False):
         root = ET.Element('root')
         root.set("type", obj.type)
 
@@ -156,7 +158,7 @@ class PhysicsDumper():
             root.set("speed", str(obj.speed))
             bodies = ET.SubElement(root, 'bodies')
             for b in obj.bd:
-                self.dumpBodyWithTex(bodies, b, obj)
+                self.dumpBodyWithTex(bodies, b, obj, fullDump)
         elif obj.type == 'autogeometry':
             self.dumpAutogeometry(root, obj)
         elif obj.type == 'level':
@@ -164,16 +166,16 @@ class PhysicsDumper():
             root.set("player_y", str(obj.player_y))
             bodies = ET.SubElement(root, 'bodies')
             for b in obj.bd:
-                self.dumpBody(bodies, b, obj)
+                self.dumpBody(bodies, b, obj, fullDump)
         else:
             bodies = ET.SubElement(root, 'bodies')
             for b in obj.bd:
-                self.dumpBody(bodies, b, obj)
+                self.dumpBody(bodies, b, obj, fullDump)
 
         constraints = ET.SubElement(root, 'constraints')
 
         for c in obj.cns:
-            self.dumpConstraints(constraints, c, obj)
+            self.dumpConstraints(constraints, c, obj, fullDump)
 
         # NOTE [EH] fix newlines
         xml_s = ET.tostring(root, encoding="unicode").replace('</root>', '\n</root>')
@@ -188,13 +190,9 @@ class PhysicsDumper():
         f.write(str(xml_s))
         f.close()
 
-    def dumpAutogeometry(self, rootElem: Optional[ET.Element], obj):
+    def dumpAutogeometry(self, rootElem: Optional[ET.Element], obj, fullDump=False):
         texName: Optional[str] = obj.t.name
-        baseDir = EXEC_FOLDER
-        if obj.type == 'vehicle':
-            baseDir = Util.getVehiclePath()
-        elif obj.type == 'autogeometry' or obj.type == 'level':
-            baseDir = Util.getLevelsPath()
+        baseDir = Util.getLevelsPath()
         if texName.startswith(baseDir):
             texName = texName[len(baseDir):texName.find('.png') + 4]
             if texName[0] == '\\' or texName[0] == '/':
@@ -202,18 +200,47 @@ class PhysicsDumper():
         rootElem.set("texture", texName)
         rootElem.set("density_x", str(obj.density_x))
         rootElem.set("density_y", str(obj.density_y))
-        rootElem.set("scale", str(obj.scale))
-        rootElem.set("alpha_threshold", str(obj.alpha_threshold))
-        rootElem.set("friction", str(obj.friction))
-        rootElem.set("elasticity", str(obj.elasticity))
+        if obj.alpha_threshold != 0.5 or fullDump:
+            rootElem.set("alpha_threshold", str(obj.alpha_threshold))
+        if obj.scale != 1.0 or fullDump:
+            rootElem.set("scale", str(obj.scale))
+        if obj.elasticity != 0.0 or fullDump:
+            rootElem.set("elasticity", str(obj.elasticity))
+        if obj.friction != 0.0 or fullDump:
+            rootElem.set("friction", str(obj.friction))
+        if obj.radius != 1.0 or fullDump:
+            rootElem.set("radius", str(obj.radius))
 
         rootElem.set("player_x", str(obj.player_x))
         rootElem.set("player_y", str(obj.player_y))
 
-    def dumpBodyWithTex(self, bodiesElem: Optional[ET.Element], b: str, obj):
+    def dumpBodyWithTex(self, bodiesElem: Optional[ET.Element], b: str, obj, fullDump=False):
         body: Optional[pymunk.Body] = obj.bd[b]
         texName: Optional[str] = obj.bdTex[b].texture.name
         baseDir = EXEC_FOLDER
+        xmlbody: Optional[ET.SubElement] = ET.SubElement(bodiesElem, 'body')
+
+        # write to xml
+        xmlbody.set("id", b)
+
+        if body.body_type == pymunk.Body.DYNAMIC:
+            xmlbody.set("type", "DYNAMIC")
+        elif body.body_type == pymunk.Body.KINEMATIC:
+            xmlbody.set("type", "KINEMATIC")
+        elif fullDump:
+            xmlbody.set("type", "STATIC")
+
+        # TODO [EH] car related --> needs to be moved from here?
+        if b in obj.motorParams:
+            xmlbody.set("motor", "True")
+            xmlbody.set("speed", str(obj.motorParams[b][0]))
+            if obj.motorParams[b][1] != 0.05 or fullDump:
+                xmlbody.set("acc", str(obj.motorParams[b][1]))
+            xmlbody.set("differential_dest", " ".join(obj.differentialDest[b]))
+        if b == obj.centralId:
+            xmlbody.set("central", "True")
+
+        # setup textures
         if obj.type == 'vehicle':
             baseDir = Util.getVehiclePath()
         elif obj.type == 'autogeometry' or obj.type == 'level':
@@ -222,74 +249,95 @@ class PhysicsDumper():
             texName = texName[len(baseDir):texName.find('.png')+4]
             if texName[0] == '\\' or texName[0] == '/':
                 texName = texName[1:]
-        xmlbody: Optional[ET.SubElement] = ET.SubElement(bodiesElem, 'body')
+
+
         xmlbody.set("texture", texName)
-        xmlbody.set("texture_rotation", "True" if obj.bdTex[b].texture_rotation else 'False')
-        xmlbody.set("texture_scale", str(obj.bdTex[b].scale))
-        if body.body_type == pymunk.Body.DYNAMIC:
-            xmlbody.set("type", "DYNAMIC")
-        elif body.body_type == pymunk.Body.KINEMATIC:
-            xmlbody.set("type", "KINEMATIC")
-        elif body.body_type == pymunk.Body.STATIC:
-            xmlbody.set("type", "STATIC")
-        xmlbody.set("position_x", str(body.position.x))
-        xmlbody.set("position_y", str(body.position.y))
-        xmlbody.set("id", b)
-        xmlbody.set("mass", str(body.mass))
-        xmlbody.set("moment", str(body.moment))
+        if obj.bdTex[b].texture_rotation or fullDump:
+            xmlbody.set("texture_flip_lr", "True")
+        if obj.bdTex[b].scale != 1.0 or fullDump:
+            xmlbody.set("texture_scale", str(obj.bdTex[b].scale))
+
+        if body.mass != pymunk.inf or fullDump:
+            xmlbody.set("mass", str(body.mass))
+        if body.moment != pymunk.inf or fullDump:
+            xmlbody.set("moment", str(body.moment))
+
+        if body.position.x != 0.0 or body.position.y != 0 or fullDump:
+            xmlbody.set("position_x", str(body.position.x))
+            xmlbody.set("position_y", str(body.position.y))
+
+        if body.angle != 0.0 or fullDump:
+            xmlbody.set("start_angle", str(body.angle))
+
         for s in body.shapes:
             for shp in obj.shp:
                 if obj.shp[shp] == s:
-                    self.dumpShape(xmlbody, shp, obj)
+                    self.dumpShape(xmlbody, shp, obj, fullDump)
                     break
 
-    def dumpBody(self, bodiesElem: Optional[ET.Element], b: str, obj):
+    def dumpBody(self, bodiesElem: Optional[ET.Element], b: str, obj, fullDump=False):
         body: Optional[pymunk.Body] = obj.bd[b]
         xmlbody: Optional[ET.SubElement] = ET.SubElement(bodiesElem, 'body')
+
+        xmlbody.set("id", b)
+
         if body.body_type == pymunk.Body.DYNAMIC:
             xmlbody.set("type", "DYNAMIC")
         elif body.body_type == pymunk.Body.KINEMATIC:
             xmlbody.set("type", "KINEMATIC")
-        elif body.body_type == pymunk.Body.STATIC:
+        elif fullDump:
             xmlbody.set("type", "STATIC")
-        xmlbody.set("position_x", str(body.position.x))
-        xmlbody.set("position_y", str(body.position.y))
-        xmlbody.set("id", b)
-        xmlbody.set("mass", str(body.mass))
-        xmlbody.set("moment", str(body.moment))
+
+        if body.mass != pymunk.inf or fullDump:
+            xmlbody.set("mass", str(body.mass))
+        if body.moment != pymunk.inf or fullDump:
+            xmlbody.set("moment", str(body.moment))
+        if body.position.x != 0.0 or body.position.y != 0 or fullDump:
+            xmlbody.set("position_x", str(body.position.x))
+            xmlbody.set("position_y", str(body.position.y))
+
+        if body.angle != 0.0 or fullDump:
+            xmlbody.set("start_angle", str(body.angle))
+
         for s in body.shapes:
             for shp in obj.shp:
                 if obj.shp[shp] == s:
-                    self.dumpShape(xmlbody, shp, obj)
+                    self.dumpShape(xmlbody, shp, obj, fullDump)
                     break
 
-    def dumpShape(self, bodyElement, shp, obj):
+    def dumpShape(self, bodyElement, shp, obj, fullDump=False):
         s = obj.shp[shp]
         xmlshape = ET.SubElement(bodyElement, 'shape')
         xmlshape.set("id", shp)
-        xmlshape.set("elasticity", str(s.elasticity))
-        xmlshape.set("friction", str(s.friction))
-        xmlshape.set("radius", str(s.radius))
+
         if s.__class__.__name__ == "Segment":
+            xmlshape.set("type", 'SEGMENT')
             xmlshape.set("a_x", str(s.a[0]))
             xmlshape.set("a_y", str(s.a[1]))
             xmlshape.set("b_x", str(s.b[0]))
             xmlshape.set("b_y", str(s.b[1]))
-            xmlshape.set("type", 'SEGMENT')
+
         elif s.__class__.__name__ == "Poly":
-            v = s.get_vertices()
-            s = " ".join(str(i.x) + " " + str(i.y) for i in v)
-            xmlshape.text = s
             xmlshape.set("type", "POLY")
+            v = s.get_vertices()
+            polyTxt = " ".join(str(i.x) + " " + str(i.y) for i in v)
+            xmlshape.text = polyTxt
+
         elif s.__class__.__name__ == "Circle":
+            xmlshape.set("type", 'CIRCLE')
             xmlshape.set("offset_x", str(s.offset.x))
             xmlshape.set("offset_y", str(s.offset.y))
-            xmlshape.set("type", 'CIRCLE')
 
-        # TODO [EH] not obligatory
-        xmlshape.set("density", str(s.density))
+        if s.elasticity != 0.0 or fullDump:
+            xmlshape.set("elasticity", str(s.elasticity))
+        if s.friction != 0.0 or fullDump:
+            xmlshape.set("friction", str(s.friction))
+        if s.radius != 1.0 or fullDump:
+            xmlshape.set("radius", str(s.radius))
+        if s.density != 0.0 or fullDump:
+            xmlshape.set("density", str(s.density))
 
-    def dumpConstraints(self, constraintsElement, c, obj):
+    def dumpConstraints(self, constraintsElement, c, obj, fullDump=False):
         cns: Optional[pymunk.Constraint] = obj.cns[c]
         constraint = ET.SubElement(constraintsElement, 'constraint')
         ba = None
@@ -302,11 +350,11 @@ class PhysicsDumper():
             if ba and bb:
                 break
         constraint.set("id", c)
-        constraint.set("a", ba)
-        constraint.set("b", bb)
 
         if cns.__class__.__name__ == "PinJoint":
             constraint.set("type", "PinJoint")
+            constraint.set("a", ba)
+            constraint.set("b", bb)
             constraint.set("anchor_a_x", str(cns.anchor_a[0]))
             constraint.set("anchor_a_y", str(cns.anchor_a[1]))
             constraint.set("anchor_b_x", str(cns.anchor_b[0]))
@@ -315,6 +363,8 @@ class PhysicsDumper():
 
         elif cns.__class__.__name__ == "SlideJoint":
             constraint.set("type", "SlideJoint")
+            constraint.set("a", ba)
+            constraint.set("b", bb)
             constraint.set("anchor_a_x", str(cns.anchor_a[0]))
             constraint.set("anchor_a_y", str(cns.anchor_a[1]))
             constraint.set("anchor_b_x", str(cns.anchor_b[0]))
@@ -324,6 +374,8 @@ class PhysicsDumper():
 
         elif cns.__class__.__name__ == "PivotJoint":
             constraint.set("type", "PivotJoint")
+            constraint.set("a", ba)
+            constraint.set("b", bb)
             constraint.set("anchor_a_x", str(cns.anchor_a[0]))
             constraint.set("anchor_a_y", str(cns.anchor_a[1]))
             constraint.set("anchor_b_x", str(cns.anchor_b[0]))
@@ -331,6 +383,8 @@ class PhysicsDumper():
 
         elif cns.__class__.__name__ == "GrooveJoint":
             constraint.set("type", "GrooveJoint")
+            constraint.set("a", ba)
+            constraint.set("b", bb)
             constraint.set("groove_a_x", str(cns.groove_a[0]))
             constraint.set("groove_a_y", str(cns.groove_a[1]))
             constraint.set("groove_b_x", str(cns.groove_b[0]))
@@ -340,6 +394,8 @@ class PhysicsDumper():
 
         elif cns.__class__.__name__ == "DampedSpring":
             constraint.set("type", "DampedSpring")
+            constraint.set("a", ba)
+            constraint.set("b", bb)
             constraint.set("anchor_a_x", str(cns.anchor_a[0]))
             constraint.set("anchor_a_y", str(cns.anchor_a[1]))
             constraint.set("anchor_b_x", str(cns.anchor_b[0]))
@@ -350,35 +406,52 @@ class PhysicsDumper():
 
         elif cns.__class__.__name__ == "DampedRotarySpring":
             constraint.set("type", "DampedRotarySpring")
+            constraint.set("a", ba)
+            constraint.set("b", bb)
             constraint.set("rest_angle", str(cns.rest_angle))
             constraint.set("stiffness", str(cns.stiffness))
             constraint.set("damping", str(cns.damping))
 
         elif cns.__class__.__name__ == "RotaryLimitJoint":
             constraint.set("type", "RotaryLimitJoint")
+            constraint.set("a", ba)
+            constraint.set("b", bb)
             constraint.set("max", str(cns.max))
             constraint.set("min", str(cns.min))
 
         elif cns.__class__.__name__ == "RatchetJoint":
             constraint.set("type", "RatchetJoint")
+            constraint.set("a", ba)
+            constraint.set("b", bb)
             constraint.set("phase", str(cns.phase))
             constraint.set("ratchet", str(cns.ratchet))
             constraint.set("angle", str(cns.angle))
 
         elif cns.__class__.__name__ == "GearJoint":
             constraint.set("type", "GearJoint")
+            constraint.set("a", ba)
+            constraint.set("b", bb)
             constraint.set("phase", str(cns.phase))
             constraint.set("ratio", str(cns.ratio))
 
         elif cns.__class__.__name__ == "SimpleMotor":
+            constraint.set("a", ba)
+            constraint.set("b", bb)
             constraint.set("type", "SimpleMotor")
             constraint.set("rate", str(cns.rate))
 
         # TODO [EH] not obligatory data
-        constraint.set("collide_bodies", str(cns.collide_bodies))
-        constraint.set("error_bias", str(cns.error_bias))
-        constraint.set("max_bias", str(cns.max_bias))
-        constraint.set("max_force", str(cns.max_force))
+        if cns.collide_bodies == 1 or fullDump:
+            constraint.set("collide_bodies", str(cns.collide_bodies))
+
+        if str(cns.error_bias) != "0.0017970074436457143" or fullDump:
+            constraint.set("error_bias", str(cns.error_bias))
+
+        if cns.max_bias != pymunk.inf or fullDump:
+            constraint.set("max_bias", str(cns.max_bias))
+
+        if cns.max_force != pymunk.inf or fullDump:
+            constraint.set("max_force", str(cns.max_force))
 
     def readData(self, path, space):
         tree = ET.parse(path)
@@ -403,7 +476,6 @@ class PhysicsDumper():
             elif root.attrib["type"] == 'vehicle':
                 obj = Vehicle()
                 obj.type = root.attrib["type"]
-                obj.speed = float(root.attrib['speed'])
 
             else:
                 obj = Level()
@@ -429,10 +501,11 @@ class PhysicsDumper():
         obj.t = arcade.load_texture(Util.getFileFromOtherFilePath(path, root.attrib["texture"]))
         obj.density_x = int(root.attrib["density_x"])
         obj.density_y = int(root.attrib["density_y"])
-        obj.scale = float(root.attrib["scale"])
-        obj.alpha_threshold = float(root.attrib["alpha_threshold"])
-        obj.friction = float(root.attrib["friction"])
-        obj.elasticity = float(root.attrib["elasticity"])
+        obj.scale = float(root.attrib["scale"]) if "scale" in root.attrib else 1.0
+        obj.alpha_threshold = float(root.attrib["alpha_threshold"]) if "alpha_threshold" in root.attrib else 0.5
+        obj.friction = float(root.attrib["friction"]) if "friction" in root.attrib else 0.0
+        obj.elasticity = float(root.attrib["elasticity"]) if "elasticity" in root.attrib else 0.0
+        obj.radius = float(root.attrib["radius"]) if "radius" in root.attrib else 1.0
 
         obj.player_x = float(root.attrib["player_x"])
         obj.player_y = float(root.attrib["player_y"])
@@ -445,19 +518,57 @@ class PhysicsDumper():
             type = pymunk.Body.KINEMATIC
         else:
             type = pymunk.Body.STATIC
-        px = float(body.attrib["position_x"])
-        py = float(body.attrib["position_y"])
+
+        #read from xml
         name = body.attrib["id"]
-        mass = float(body.attrib["mass"]) if body.attrib["mass"] != 'inf' else pymunk.inf
-        moment = float(body.attrib["moment"]) if body.attrib["moment"] != 'inf' else pymunk.inf
+        mass = pymunk.inf
+        moment = pymunk.inf
+        px = 0.0
+        py = 0.0
+        scale = 1.0
+        angle = 0.0
+        texRot = True
+
+        if "mass" in body.attrib:
+            mass = float(body.attrib["mass"])
+
+        # TODO [EH] calc moment when not given
+        if "moment" in body.attrib:
+            moment = float(body.attrib["moment"])
+
+        if "position_x" in body.attrib and "position_y" in body.attrib:
+            px = float(body.attrib["position_x"])
+            py = float(body.attrib["position_y"])
+
+        if "start_angle" in body.attrib:
+            angle = float(body.attrib["start_angle"])
+
         obj.bd[name] = pymunk.Body(mass, moment, type)
         space.add(obj.bd[name])
         obj.bd[name].position = px, py
+        obj.bd[name].angle = angle
 
         obj.bdTex[name]: arcade.Sprite = arcade.Sprite(Util.getFileFromOtherFilePath(path, body.attrib["texture"]))
-        obj.bdTex[name].texture_rotation = True if body.attrib["texture_rotation"] == 'True' else False
-        obj.bdTex[name].scale = float(body.attrib['texture_scale'])
+        if "texture_flip_lr" in body.attrib:
+            texRot = body.attrib["texture_flip_lr"]
+        obj.bdTex[name].texture_rotation = True if texRot == 'True' else False
+        if 'texture_scale' in body.attrib:
+            scale = float(body.attrib['texture_scale'])
+        obj.bdTex[name].scale = scale
         #obj.bdTex[name].texture_transform.scale(obj.bdTex[name].texture_scale_x, obj.bdTex[name].texture_scale_y)
+
+        # TODO [EH] car related params --> needs to be moved from here?
+        if 'motor' in body.attrib and 'speed' in body.attrib:
+            acc = 0.05
+            if 'acc' in body.attrib:
+                acc = float(body.attrib['acc'])
+            obj.motorParams[name] = [float(body.attrib['speed']), acc, 0.0]
+            if "differential_dest" in body.attrib:
+                obj.differentialDest[name] = body.attrib['differential_dest'].split()
+
+        if 'central' in body.attrib and body.attrib['central'] == "True":
+            obj.centralId = name
+            obj.startAngle = angle
 
         for shape in body:
             if shape.tag == 'shape':
@@ -471,25 +582,54 @@ class PhysicsDumper():
             type = pymunk.Body.KINEMATIC
         else:
             type = pymunk.Body.STATIC
-        px = float(body.attrib["position_x"])
-        py = float(body.attrib["position_y"])
+
         name = body.attrib["id"]
-        mass = float(body.attrib["mass"]) if body.attrib["mass"] != 'inf' else pymunk.inf
-        moment = float(body.attrib["moment"]) if body.attrib["moment"] != 'inf' else pymunk.inf
+        mass = pymunk.inf
+        moment = pymunk.inf
+        px = 0.0
+        py = 0.0
+        angle = 0.0
+
+        if "mass" in body.attrib:
+            mass = float(body.attrib["mass"])
+
+        # TODO [EH] calc moment when not given
+        if "moment" in body.attrib:
+            moment = float(body.attrib["moment"])
+
+        if "position_x" in body.attrib and "position_y" in body.attrib:
+            px = float(body.attrib["position_x"])
+            py = float(body.attrib["position_y"])
+
+        if "start_angle" in body.attrib:
+            angle = float(body.attrib["start_angle"])
+
         obj.bd[name] = pymunk.Body(mass, moment, type)
         space.add(obj.bd[name])
         obj.bd[name].position = px, py
+        obj.bd[name].angle = angle
+
         for shape in body:
             if shape.tag == 'shape':
                 self.readShape(shape, obj.bd[name], obj, space)
 
     def readShape(self, shape, body, obj, space):
         stype = shape.attrib['type']
-        elasticity = float(shape.attrib["elasticity"]) if shape.attrib["elasticity"] != 'inf' else pymunk.inf
-        friction = float(shape.attrib["friction"]) if shape.attrib["friction"] != 'inf' else pymunk.inf
-        density = float(shape.attrib["density"]) if shape.attrib["density"] != 'inf' else pymunk.inf
-        radius = float(shape.attrib["radius"])
         sname = shape.attrib["id"]
+
+        elasticity = 0.0
+        friction = 0.0
+        density = 0.0
+        radius = 1.0
+
+        if 'elasticity' in shape.attrib:
+            elasticity = float(shape.attrib["elasticity"])
+        if 'friction' in shape.attrib:
+            friction = float(shape.attrib["friction"])
+        if 'density' in shape.attrib:
+            density = float(shape.attrib["density"])
+        if 'radius' in shape.attrib:
+            radius = float(shape.attrib["radius"])
 
         if stype == "SEGMENT":
             a_x = float(shape.attrib["a_x"])  # + px
@@ -498,31 +638,23 @@ class PhysicsDumper():
             b_y = float(shape.attrib["b_y"])  # + py
             obj.shp[sname] = pymunk.Segment(body, (a_x, a_y), (b_x, b_y), radius)
             space.add(obj.shp[sname])
-            obj.shp[sname].friction = friction
-            if density > 0.0:
-                obj.shp[sname].density = density
-            obj.shp[sname].elasticity = elasticity
 
         elif stype == "CIRCLE":
             o_x = float(shape.attrib["offset_x"])
             o_y = float(shape.attrib["offset_y"])
             obj.shp[sname] = pymunk.Circle(body, radius, (o_x, o_y))
             space.add(obj.shp[sname])
-            obj.shp[sname].friction = friction
-            if density > 0.0:
-                obj.shp[sname].density = density
-
-            obj.shp[sname].elasticity = elasticity
 
         elif stype == "POLY":
             verts = shape.text.split()
             tmp = [(float(verts[i]), float(verts[i + 1])) for i in range(0, len(verts), 2)]
             obj.shp[sname] = pymunk.Poly(body, tmp, None, radius)
             space.add(obj.shp[sname])
-            obj.shp[sname].friction = friction
-            if density > 0.0:
-                obj.shp[sname].density = density
-            obj.shp[sname].elasticity = elasticity
+
+        obj.shp[sname].friction = friction
+        obj.shp[sname].elasticity = elasticity
+        if density > 0.0:
+            obj.shp[sname].density = density
 
     def readConstraint(self, c, obj, space):
         cntype = c.attrib['type']
@@ -539,7 +671,6 @@ class PhysicsDumper():
             if 'distance' in c.attrib:
                 distance = float(c.attrib['distance'])
                 obj.cns[cname].distance = distance
-
 
         elif cntype == 'SlideJoint':
             a_a_x = float(c.attrib['anchor_a_x'])
@@ -610,14 +741,24 @@ class PhysicsDumper():
             obj.cns[cname] = pymunk.SimpleMotor(a, b, rate)
 
         space.add(obj.cns[cname])
-        error_bias = float(c.attrib["error_bias"]) if c.attrib["error_bias"] != 'inf' else pymunk.inf
-        max_bias = float(c.attrib["max_bias"]) if c.attrib["max_bias"] != 'inf' else pymunk.inf
-        max_force = float(c.attrib["max_force"]) if c.attrib["max_force"] != 'inf' else pymunk.inf
-        self_collide = int(c.attrib["collide_bodies"])
-        obj.cns[cname].error_bias = error_bias
-        obj.cns[cname].max_bias = max_bias
-        obj.cns[cname].max_force = max_force
+
+        self_collide = 0
+        if "collide_bodies" in c.attrib:
+            self_collide = int(c.attrib["collide_bodies"])
+
         obj.cns[cname].collide_bodies = self_collide
+
+        if "error_bias" in c.attrib:
+            error_bias = float(c.attrib["error_bias"])
+            obj.cns[cname].error_bias = error_bias
+
+        if "max_bias" in c.attrib:
+            max_bias = float(c.attrib["max_bias"]) if c.attrib["max_bias"] != 'inf' else pymunk.inf
+            obj.cns[cname].max_bias = max_bias
+
+        if "max_force" in c.attrib:
+            max_force = float(c.attrib["max_force"]) if c.attrib["max_force"] != 'inf' else pymunk.inf
+            obj.cns[cname].max_force = max_force
 
 
 class Level:
@@ -738,9 +879,11 @@ class Vehicle:
         self.dir = 1  # TODO [EH] create some normal directions, now 1 is left wheel, -1 is right wheel
         self.prevDir = 1
         self.differential = False
+        self.differentialDest = {}
         self.speed = 20
-        self.acc_l = 0
-        self.acc_r = 0
+        self.startAngle = 0.0
+        self.centralId = ""
+        self.motorParams = {}
 
     def remove(self, space):
         for v in self.cns:
@@ -766,21 +909,10 @@ class Vehicle:
                 # TODO [EH] ... but weirdly sprite got one scale :D
                 self.bdTex[n].texture_transform.scale(-1, 1)
 
-        Util.flipConstraints(self.cns, self.bd['head'])
-        # self.bdTex['lw'], self.bdTex['rw'] = self.bdTex['rw'], self.bdTex['lw']
-        # lshapes = self.bd['lw'].shapes
-        # rshapes = self.bd['rw'].shapes
-        # # TODO [EH] not good but works
-        # # TODO [EH] swap shapes, leave bodies as is. This needs to be changed (along with acceleration)
-        # for shape in lshapes:
-        #     shape.space.remove(shape)
-        #     shape.body = self.bd['rw']
-        #     shape.space.add(shape)
-        # for shape in rshapes:
-        #     shape.space.remove(shape)
-        #     shape.body = self.bd['lw']
-        #     shape.space.add(shape)
-        # for id, cns in self.cns.items():
+        for motorId in self.motorParams:
+            self.motorParams[motorId][2] = 0.0
+
+        Util.flipConstraints(self.cns, self.bd[self.centralId], -self.startAngle * self.dir)
 
         # TODO [EH] Swap constraints and bodies
 
@@ -791,8 +923,6 @@ class Vehicle:
     def draw(self, drawVectors=True, drawGraphics=True):
 
         if self.dir != self.prevDir:
-            self.acc_l = 0
-            self.acc_r = 0
             self.flip()
             self.prevDir = self.dir
 
@@ -812,34 +942,47 @@ class Vehicle:
                 self.differential = not self.differential
                 key.unsetKey(arcade.key.E)
 
+            # TODO [EH] this could be speed up for sure
             if key.k[arcade.key.W]:
                 if self.dir > 0:
-                    self.acc_l = max(self.acc_l - 0.05, -self.speed)
-                    self.bd['lw'].angular_velocity = max(self.bd['lw'].angular_velocity + self.acc_l, -self.speed)
+                    for motorId in self.motorParams:
+                        motor = self.motorParams[motorId]
+                        motor[2] = max(motor[2] - motor[1], -motor[0])
+                        self.bd[motorId].angular_velocity = max(self.bd[motorId].angular_velocity + motor[2], -motor[0])
                 else:
-                    self.acc_l = min(self.acc_l + 0.05, self.speed)
-                    self.bd['lw'].angular_velocity = min(self.bd['lw'].angular_velocity + self.acc_l, self.speed)
-                if self.differential:
-                    self.bd['rw'].angular_velocity = self.bd['lw'].angular_velocity
+                    for motorId in self.motorParams:
+                        motor = self.motorParams[motorId]
+                        motor[2] = min(motor[2] + motor[1], motor[0])
+                        self.bd[motorId].angular_velocity = min(self.bd[motorId].angular_velocity + motor[2], motor[0])
+
             elif key.k[arcade.key.S]:
                 if self.dir > 0:
-                    self.acc_l = min(self.acc_l + 0.025, self.speed/2)
-                    self.bd['lw'].angular_velocity = min(self.bd['lw'].angular_velocity + self.acc_l, self.speed/2)
+                    for motorId in self.motorParams:
+                        motor = self.motorParams[motorId]
+                        motor[2] = min(motor[2] + motor[1]/2, motor[0]/2)
+                        self.bd[motorId].angular_velocity = min(self.bd[motorId].angular_velocity + motor[2]/2, motor[0]/2)
                 else:
-                    self.acc_l = max(self.acc_l - 0.025, self.speed/2)
-                    self.bd['lw'].angular_velocity = max(self.bd['lw'].angular_velocity + self.acc_l, -self.speed/2)
-                if self.differential:
-                    self.bd['rw'].angular_velocity = self.bd['lw'].angular_velocity
+                    for motorId in self.motorParams:
+                        motor = self.motorParams[motorId]
+                        motor[2] = max(motor[2] - motor[1]/2, - motor[0]/2)
+                        self.bd[motorId].angular_velocity = max(self.bd[motorId].angular_velocity + motor[2] / 2,
+                                                                -motor[0] / 2)
+
             else:
-                self.acc_l = 0
-                self.acc_r = 0
+                for motorId in self.motorParams:
+                    self.motorParams[motorId][2] = 0.0
+
+            if self.differential:
+                for src in self.differentialDest:
+                    for dest in self.differentialDest[src]:
+                        self.bd[dest].angular_velocity = self.bd[src].angular_velocity
 
             if key.k[arcade.key.D]:
-                self.bd['head'].apply_force_at_local_point((2120, 0), (0, 30))
-                self.bd['head'].apply_force_at_local_point((-2120, 0), (0, -30))
+                self.bd[self.centralId].apply_force_at_local_point((2120, 0), (0, 30))
+                self.bd[self.centralId].apply_force_at_local_point((-2120, 0), (0, -30))
             if key.k[arcade.key.A]:
-                self.bd['head'].apply_force_at_local_point((-2120, 0), (0, 30))
-                self.bd['head'].apply_force_at_local_point((2120, 0), (0, -30))
+                self.bd[self.centralId].apply_force_at_local_point((-2120, 0), (0, 30))
+                self.bd[self.centralId].apply_force_at_local_point((2120, 0), (0, -30))
             if key.k[arcade.key.SPACE]:
                 self.dir *= -1
 
@@ -886,7 +1029,8 @@ class MyGame(arcade.Window):
 'Z' to dump level and bike to xml, 'X' to hide text,
 'C' to hide graphics, 'V' to ignore physics
 'B' to reload bike, 'N' to reload level
-'Q' to print FPS in console, 'M' to display vectors'''
+'Q' to print FPS in console along with current car angle
+ 'M' to display vectors'''
 
         print(self.help)
         self.fn = EXEC_FOLDER + '\\Pacifico.ttf'
@@ -895,20 +1039,13 @@ class MyGame(arcade.Window):
     def setup(self):
         """ Set up the game here. Call this function to restart the game. """
 
-        # TODO [EH] how does this work? Should 1 game have one Window? if yes, when to call this func (how load
-        # new levels? Should main loop be stopped? :|
-
         self.space = pymunk.Space()
         self.space.gravity = (0, -100)
         self.space.damping = 1
 
         self.level = PhysicsDumper().readData(self.levels[self.levels[-1]], self.space)
-        #self.level.create(self.levels[self.levels[-1]], self.space)
         self.bike = PhysicsDumper().readData(self.vehicles[self.vehicles[-1]], self.space)
-        #self.bike.create(self.vehicles[self.vehicles[-1]], self.space)
         self.bike.moveTo(self.level.player_x, self.level.player_y)
-
-        #PhysicsDumper('_level2.xml', EXEC_FOLDER).dumpData(self.level2)
 
         self.music = arcade.Sound(":resources:music/1918.mp3", streaming=True)
         self.music.play(0.02)
@@ -947,6 +1084,7 @@ class MyGame(arcade.Window):
             dt = time.time() - self.prevtime
             dt = 0.001 if dt <= 0.001 else dt
             print("FPS---- " + str(1 / (dt)) + "fps")
+            print("Car current angle ==> ", self.bike.bd[self.bike.centralId].angle)
 
         if self.printPhysicElems:
             self.print_physic_elems(self.bike.bd, 'rw')
@@ -962,8 +1100,12 @@ class MyGame(arcade.Window):
 
         # other stuff
         elif key == arcade.key.Z:
-            PhysicsDumper().dumpData(EXEC_FOLDER + '\\test_dumps\\dump_bike.xml', self.bike)
-            PhysicsDumper().dumpData(EXEC_FOLDER + '\\test_dumps\\dump_level.xml', self.level)
+            if (modifiers & arcade.key.MOD_SHIFT):
+                PhysicsDumper().dumpData(EXEC_FOLDER + '\\test_dumps\\dump_full_bike.xml', self.bike, True)
+                PhysicsDumper().dumpData(EXEC_FOLDER + '\\test_dumps\\dump_full_level.xml', self.level, True)
+            else:
+                PhysicsDumper().dumpData(EXEC_FOLDER + '\\test_dumps\\dump_bike.xml', self.bike)
+                PhysicsDumper().dumpData(EXEC_FOLDER + '\\test_dumps\\dump_level.xml', self.level)
         elif key == arcade.key.X:
             self.drawText = not self.drawText
         elif key == arcade.key.C:
