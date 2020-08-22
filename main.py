@@ -27,7 +27,10 @@ SCREEN_TITLE = "Platformer"
 
 EXEC_FOLDER = os.getcwd()
 
+
+# temporary - don't know where to put those functions really :D
 class Util:
+
     @staticmethod
     def drawVectors(shapeDict):
         for s in shapeDict:
@@ -50,6 +53,40 @@ class Util:
                 arcade.draw_circle_filled(bpos[0], bpos[1], shape.radius,
                                  arcade.color.GREEN, 1)
 
+    @staticmethod
+    def getAllEntityFiles(path):
+        output = []
+        filesList = os.listdir(path)
+        for f in filesList:
+            if f.endswith(".xml"):
+                output.append(path + f)
+        # currently selected car
+        output.append(0)
+        return output
+
+    @staticmethod
+    def getNextEntity(entityList):
+        entityList[-1] = (entityList[-1] + 1) % (len(entityList) - 1)
+
+        return entityList[entityList[-1]]
+
+    @staticmethod
+    def getVehiclePath():
+        return EXEC_FOLDER + '\\vehicles\\'
+
+    @staticmethod
+    def getLevelsPath():
+        return EXEC_FOLDER + '\\levels\\'
+
+    @staticmethod
+    def getFolderFromFilePath(filePath):
+        return filePath[:filePath.rfind('\\')]
+
+    @staticmethod
+    def getFileFromOtherFilePath(filePath, file):
+        return Util.getFolderFromFilePath(filePath) + '\\' + file
+
+
 
 class Keys:
     def __init__(self):
@@ -71,22 +108,22 @@ class Keys:
 # TODO [EH] move this to separate file
 # TODO [EH] add defaults to unnecessary fields
 class PhysicsDumper():
-    def __init__(self, filename, filepath, sep='\\'):
-        self.path = filepath + sep + filename
+    def __init__(self):
+        pass
 
     # TODO [EH] - chop this even more?
-    def dumpData(self, obj):
+    def dumpData(self, path, obj):
         root = ET.Element('root')
-        root.set("type", self.type)
+        root.set("type", obj.type)
 
-        if self.type == 'vehicle':
+        if obj.type == 'vehicle':
             root.set("speed", str(obj.speed))
             bodies = ET.SubElement(root, 'bodies')
             for b in obj.bd:
                 self.dumpBodyWithTex(bodies, b, obj)
-        elif self.type == 'autogeometry':
+        elif obj.type == 'autogeometry':
             self.dumpAutogeometry(root, obj)
-        elif self.type == 'level':
+        elif obj.type == 'level':
             root.set("player_x", str(obj.player_x))
             root.set("player_y", str(obj.player_y))
             bodies = ET.SubElement(root, 'bodies')
@@ -111,14 +148,19 @@ class PhysicsDumper():
         for i in ['<shape ', '</shape>', '<shape />']:
             xml_s = xml_s.replace(i, '\n   ' + i)
 
-        f = open(self.path, "w")
+        f = open(path, "w")
         f.write(str(xml_s))
         f.close()
 
     def dumpAutogeometry(self, rootElem: Optional[ET.Element], obj):
         texName: Optional[str] = obj.t.name
-        if texName.startswith(EXEC_FOLDER):
-            texName = texName[len(EXEC_FOLDER):texName.find('.png')+4]
+        baseDir = EXEC_FOLDER
+        if obj.type == 'vehicle':
+            baseDir = Util.getVehiclePath()
+        elif obj.type == 'autogeometry' or obj.type == 'level':
+            baseDir = Util.getLevelsPath()
+        if texName.startswith(baseDir):
+            texName = texName[len(baseDir):texName.find('.png') + 4]
             if texName[0] == '\\' or texName[0] == '/':
                 texName = texName[1:]
         rootElem.set("texture", texName)
@@ -135,8 +177,13 @@ class PhysicsDumper():
     def dumpBodyWithTex(self, bodiesElem: Optional[ET.Element], b: str, obj):
         body: Optional[pymunk.Body] = obj.bd[b]
         texName: Optional[str] = obj.bdTex[b].texture.name
-        if texName.startswith(EXEC_FOLDER):
-            texName = texName[len(EXEC_FOLDER):texName.find('.png')+4]
+        baseDir = EXEC_FOLDER
+        if obj.type == 'vehicle':
+            baseDir = Util.getVehiclePath()
+        elif obj.type == 'autogeometry' or obj.type == 'level':
+            baseDir = Util.getLevelsPath()
+        if texName.startswith(baseDir):
+            texName = texName[len(baseDir):texName.find('.png')+4]
             if texName[0] == '\\' or texName[0] == '/':
                 texName = texName[1:]
         xmlbody: Optional[ET.SubElement] = ET.SubElement(bodiesElem, 'body')
@@ -293,25 +340,41 @@ class PhysicsDumper():
         constraint.set("max_bias", str(cns.max_bias))
         constraint.set("max_force", str(cns.max_force))
 
-    def readData(self, obj, space):
-        tree = ET.parse(self.path)
+    def readData(self, path, space):
+        tree = ET.parse(path)
         root = tree.getroot()
-        if 'type' in root.attrib and root.attrib["type"] == 'autogeometry':
-            self.readAutogeometry(root, obj)
-            return
+        obj = None
+        if 'type' in root.attrib:
 
-        if "player_x" in root.attrib and "player_y" in root.attrib:
-            obj.player_x = float(root.attrib["player_x"])
-            obj.player_y = float(root.attrib["player_y"])
+            if root.attrib["type"] == 'autogeometry':
+                # damn, swapped obj and path args :(
+                obj = Level2()
+                obj.type = root.attrib["type"]
+                self.readAutogeometry(root, obj, path)
+                obj.getMarchingCubes(obj.density_x, obj.density_y).sendSegmentsToPhysics(space)
+                return obj
 
-        if 'speed' in root.attrib:
-            obj.speed = float(root.attrib['speed'])
+            elif root.attrib["type"] == 'level':
+                obj = Level()
+                obj.type = root.attrib["type"]
+                obj.player_x = float(root.attrib["player_x"])
+                obj.player_y = float(root.attrib["player_y"])
+
+            elif root.attrib["type"] == 'vehicle':
+                obj = Vehicle()
+                obj.type = root.attrib["type"]
+                obj.speed = float(root.attrib['speed'])
+
+            else:
+                obj = Level()
+                obj.type = 'level'
 
         for child in root:
             if child.tag == 'bodies':
                 for body in child:
                     if 'texture' in body.attrib:
-                        self.readBodyWithTex(body, obj, space)
+                        # damn, swapped obj and path args :(
+                        self.readBodyWithTex(body, obj, space, path)
                     else:
                         self.readBody(body, obj, space)
 
@@ -320,8 +383,10 @@ class PhysicsDumper():
                 for c in child:
                     self.readConstraint(c, obj, space)
 
-    def readAutogeometry(self, root: Optional[ET.Element], obj):
-        obj.t = arcade.load_texture(EXEC_FOLDER + '\\' + root.attrib["texture"])
+        return obj
+
+    def readAutogeometry(self, root: Optional[ET.Element], obj, path: str):
+        obj.t = arcade.load_texture(Util.getFileFromOtherFilePath(path, root.attrib["texture"]))
         obj.density_x = int(root.attrib["density_x"])
         obj.density_y = int(root.attrib["density_y"])
         obj.scale = float(root.attrib["scale"])
@@ -332,7 +397,7 @@ class PhysicsDumper():
         obj.player_x = float(root.attrib["player_x"])
         obj.player_y = float(root.attrib["player_y"])
 
-    def readBodyWithTex(self, body, obj, space):
+    def readBodyWithTex(self, body, obj, space, path: str):
         type = body.attrib['type']
         if type == 'DYNAMIC':
             type = pymunk.Body.DYNAMIC
@@ -349,7 +414,7 @@ class PhysicsDumper():
         space.add(obj.bd[name])
         obj.bd[name].position = px, py
 
-        obj.bdTex[name]: arcade.Sprite = arcade.Sprite(EXEC_FOLDER + "\\" + body.attrib['texture'])
+        obj.bdTex[name]: arcade.Sprite = arcade.Sprite(Util.getFileFromOtherFilePath(path, body.attrib["texture"]))
         obj.bdTex[name].texture_rotation = True if body.attrib["texture_rotation"] == 'True' else False
         obj.bdTex[name].scale = float(body.attrib['texture_scale'])
         #obj.bdTex[name].texture_transform.scale(obj.bdTex[name].texture_scale_x, obj.bdTex[name].texture_scale_y)
@@ -418,26 +483,6 @@ class PhysicsDumper():
             if density > 0.0:
                 obj.shp[sname].density = density
             obj.shp[sname].elasticity = elasticity
-
-    def readBody(self, body, obj, space):
-        type = body.attrib['type']
-        if type == 'DYNAMIC':
-            type = pymunk.Body.DYNAMIC
-        elif type == "KINEMATIC":
-            type = pymunk.Body.KINEMATIC
-        else:
-            type = pymunk.Body.STATIC
-        px = float(body.attrib["position_x"])
-        py = float(body.attrib["position_y"])
-        name = body.attrib["id"]
-        mass = float(body.attrib["mass"]) if body.attrib["mass"] != 'inf' else pymunk.inf
-        moment = float(body.attrib["moment"]) if body.attrib["moment"] != 'inf' else pymunk.inf
-        obj.bd[name] = pymunk.Body(mass, moment, type)
-        space.add(obj.bd[name])
-        obj.bd[name].position = px, py
-        for shape in body:
-            if shape.tag == 'shape':
-                self.readShape(shape, obj.bd[name], obj, space)
 
     def readConstraint(self, c, obj, space):
         cntype = c.attrib['type']
@@ -552,8 +597,9 @@ class Level:
             space.remove(self.bd[v])
 
     def create(self, space):
+        pass
 
-        PhysicsDumper('level_4.xml', EXEC_FOLDER).readData(self, space)
+        #PhysicsDumper().readData(path, space)
         #PhysicsDumper('level_4.xml', EXEC_FOLDER).dumpData(self)
 
     def draw(self, drawVectors=True, drawGraphics=True):
@@ -592,7 +638,7 @@ class Level2:
         self.t = None
 
     def create(self, space):
-        PhysicsDumper('level_3.xml', EXEC_FOLDER).readData(self, space)
+        #PhysicsDumper().readData(path, space)
         self.getMarchingCubes(self.density_x, self.density_y).sendSegmentsToPhysics(space)
         #PhysicsDumper('level_3.xml', EXEC_FOLDER).dumpData(self)
 
@@ -665,7 +711,7 @@ class Vehicle:
             self.bdTex[v].kill()
 
     def create(self, space):
-        PhysicsDumper('car_2.xml', EXEC_FOLDER).readData(self, space)
+        #PhysicsDumper().readData(path, space)
         #PhysicsDumper('car_2.xml', EXEC_FOLDER).dumpData(self)
         if self.dir < 0:
             self.flip()
@@ -677,6 +723,10 @@ class Vehicle:
                 # TODO [EH] change to sprite flipping, not whole texture
                 # TODO [EH] ... but weirdly sprite got one scale :D
                 self.bdTex[n].texture_transform.scale(-1, 1)
+        # swap bodies in space
+        # self.bd['lw'].position, self.bd['rw'].position = self.bd['rw'].position, self.bd['lw'].position
+        # assuming body 'b' are wheels, body 'a' is car frame:
+        # TODO [EH]
 
     def moveTo(self, x, y):
         for i in self.bd:
@@ -796,6 +846,8 @@ class MyGame(arcade.Window):
 
         arcade.set_background_color(arcade.csscolor.CORNFLOWER_BLUE)
 
+
+
         self.space = None
         self.bike = None
         self.level = None
@@ -813,6 +865,9 @@ class MyGame(arcade.Window):
         self.drawVectors = False
         self.drawText = True
         self.printPhysicElems = False
+
+        self.vehicles = Util.getAllEntityFiles(Util.getVehiclePath())
+        self.levels = Util.getAllEntityFiles(Util.getLevelsPath())
 
         self.help = ''''W' and 'S' to steer, ' ' to change wheels,
 'A' and 'D' to rotate, 'E' to lock/unlock differential,
@@ -835,10 +890,10 @@ class MyGame(arcade.Window):
         self.space.gravity = (0, -100)
         self.space.damping = 1
 
-        self.level = Level2()
-        self.level.create(self.space)
-        self.bike = Vehicle()
-        self.bike.create(self.space)
+        self.level = PhysicsDumper().readData(self.levels[self.levels[-1]], self.space)
+        #self.level.create(self.levels[self.levels[-1]], self.space)
+        self.bike = PhysicsDumper().readData(self.vehicles[self.vehicles[-1]], self.space)
+        #self.bike.create(self.vehicles[self.vehicles[-1]], self.space)
         self.bike.moveTo(self.level.player_x, self.level.player_y)
 
         #PhysicsDumper('_level2.xml', EXEC_FOLDER).dumpData(self.level2)
@@ -895,8 +950,8 @@ class MyGame(arcade.Window):
 
         # other stuff
         elif key == arcade.key.Z:
-            PhysicsDumper('dump_bike.xml', EXEC_FOLDER).dumpData(self.bike)
-            PhysicsDumper('dump_level.xml', EXEC_FOLDER).dumpData(self.level)
+            PhysicsDumper().dumpData(EXEC_FOLDER + '\\test_dumps\\dump_bike.xml', self.bike)
+            PhysicsDumper().dumpData(EXEC_FOLDER + '\\test_dumps\\dump_level.xml', self.level)
         elif key == arcade.key.X:
             self.drawText = not self.drawText
         elif key == arcade.key.C:
@@ -905,24 +960,23 @@ class MyGame(arcade.Window):
             self.processPhysics = not self.processPhysics
         elif key == arcade.key.B:
             self.bike.remove(self.space)
-            self.bike.create(self.space)
+            self.bike = PhysicsDumper().readData(self.vehicles[self.vehicles[-1]], self.space)
             self.bike.moveTo(self.level.player_x, self.level.player_y)
         elif key == arcade.key.N:
             type = self.level.type[:]
             self.level.remove(self.space)
             del self.level
-            self.level = None
-            if type == 'level':
-                self.level = Level2()
-            else:
-                self.level = Level()
-            self.level.create(self.space)
+            self.level = PhysicsDumper().readData(Util.getNextEntity(self.levels), self.space)
         elif key == arcade.key.Q:
             self.printFPS = not self.printFPS
         elif key == arcade.key.M:
             self.drawVectors = not self.drawVectors
         elif key == arcade.key.ESCAPE:
             self.close()
+        elif key == arcade.key.F:
+            self.bike.remove(self.space)
+            self.bike = PhysicsDumper().readData(Util.getNextEntity(self.vehicles), self.space)
+            self.bike.moveTo(self.level.player_x, self.level.player_y)
 
     def on_key_release(self, key: int, modifiers: int):
 
