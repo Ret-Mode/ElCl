@@ -1,0 +1,24 @@
+<root type="vehicle" speed="20.0">
+ <bodies>
+  <body texture="wheel1.png" texture_rotation="False" texture_scale="0.75" type="DYNAMIC" position_x="-96.0" position_y="-60.0" id="lw" mass="1.0" moment="112.5">
+   <shape id="lw1" elasticity="0.0" friction="0.9" density="0.0" radius="24.0" offset_x="0.0" offset_y="0.0" type="CIRCLE" />
+  </body>
+  <body texture="wheel1.png" texture_rotation="False" texture_scale="0.75" type="DYNAMIC" position_x="-40.0" position_y="-60.0" id="lw2" mass="1.0" moment="112.5">
+   <shape id="lw2" elasticity="0.0" friction="0.9" density="0.0" radius="24.0" offset_x="0.0" offset_y="0.0" type="CIRCLE" />
+  </body>
+  <body texture="wheel1.png" texture_rotation="False" texture_scale="0.75" type="DYNAMIC" position_x="96.0" position_y="-60.0" id="rw" mass="1.0" moment="112.5">
+   <shape id="rw1" elasticity="0.0" friction="0.9" density="0.0" radius="24.0" offset_x="0.0" offset_y="0.0" type="CIRCLE" />
+  </body>
+  <body texture="tank.png" texture_rotation="True" texture_scale="1" type="DYNAMIC" position_x="0.0" position_y="0.0" id="head" mass="5.0" moment="6083.333333333333">
+   <shape id="head" elasticity="0.9" friction="0.01" density="0.0" radius="15.0" offset_x="0.0" offset_y="0.0" type="CIRCLE" />
+  </body>
+ </bodies>
+ <constraints>
+  <constraint id="lwGJ" a="head" b="lw" type="GrooveJoint" groove_a_x="-96.0" groove_a_y="-30.0" groove_b_x="-96.0" groove_b_y="-60.0" anchor_b_x="0.0" anchor_b_y="0.0" collide_bodies="1" error_bias="0.0017970074436457143" max_bias="inf" max_force="inf" />
+  <constraint id="lwGJ2" a="head" b="lw2" type="GrooveJoint" groove_a_x="-40.0" groove_a_y="-30.0" groove_b_x="-40.0" groove_b_y="-60.0" anchor_b_x="0.0" anchor_b_y="0.0" collide_bodies="1" error_bias="0.0017970074436457143" max_bias="inf" max_force="inf" />
+  <constraint id="rwGJ" a="head" b="rw" type="GrooveJoint" groove_a_x="96.0" groove_a_y="-30.0" groove_b_x="96.0" groove_b_y="-60.0" anchor_b_x="0.0" anchor_b_y="0.0" collide_bodies="1" error_bias="0.0017970074436457143" max_bias="inf" max_force="inf" />
+  <constraint id="lwDS" a="head" b="lw" type="DampedSpring" anchor_a_x="-96.0" anchor_a_y="0.0" anchor_b_x="0.0" anchor_b_y="0.0" rest_length="50.0" stiffness="20.0" damping="10.0" collide_bodies="1" error_bias="0.0017970074436457143" max_bias="inf" max_force="inf" />
+  <constraint id="lwDS2" a="head" b="lw2" type="DampedSpring" anchor_a_x="-40.0" anchor_a_y="0.0" anchor_b_x="0.0" anchor_b_y="0.0" rest_length="50.0" stiffness="20.0" damping="10.0" collide_bodies="1" error_bias="0.0017970074436457143" max_bias="inf" max_force="inf" />
+  <constraint id="rwDS" a="head" b="rw" type="DampedSpring" anchor_a_x="96.0" anchor_a_y="0.0" anchor_b_x="0.0" anchor_b_y="0.0" rest_length="50.0" stiffness="20.0" damping="10.0" collide_bodies="1" error_bias="0.0017970074436457143" max_bias="inf" max_force="inf" />
+ </constraints>
+</root>
