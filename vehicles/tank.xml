@@ -20,5 +20,7 @@
   <constraint id="lwDS" a="head" b="lw" type="DampedSpring" anchor_a_x="-96.0" anchor_a_y="0.0" anchor_b_x="0.0" anchor_b_y="0.0" rest_length="50.0" stiffness="20.0" damping="10.0" collide_bodies="1" error_bias="0.0017970074436457143" max_bias="inf" max_force="inf" />
   <constraint id="lwDS2" a="head" b="lw2" type="DampedSpring" anchor_a_x="-40.0" anchor_a_y="0.0" anchor_b_x="0.0" anchor_b_y="0.0" rest_length="50.0" stiffness="20.0" damping="10.0" collide_bodies="1" error_bias="0.0017970074436457143" max_bias="inf" max_force="inf" />
   <constraint id="rwDS" a="head" b="rw" type="DampedSpring" anchor_a_x="96.0" anchor_a_y="0.0" anchor_b_x="0.0" anchor_b_y="0.0" rest_length="50.0" stiffness="20.0" damping="10.0" collide_bodies="1" error_bias="0.0017970074436457143" max_bias="inf" max_force="inf" />
+  <constraint id="sm" a="lw" b="lw2" type="SimpleMotor" rate="0.0" collide_bodies="1" error_bias="0.0017970074436457143" max_bias="inf" max_force="inf" />
+
  </constraints>
 </root>

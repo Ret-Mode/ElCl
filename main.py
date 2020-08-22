@@ -39,11 +39,12 @@ class Util:
                 bpos = shape.body.position
                 poly = shape.get_vertices()
                 for v in range(len(poly) - 1):
-                    arcade.draw_line(poly[v][0] + bpos[0], poly[v][1] + bpos[1], poly[v + 1][0] + bpos[0],
-                                     poly[v + 1][1] + bpos[1], arcade.color.BLACK, 1)
-                arcade.draw_line(poly[-1][0] + bpos[0], poly[-1][1] + bpos[1], poly[0][0] + bpos[0],
-                                 poly[0][0] + bpos[1],
-                                 arcade.color.BLACK, 1)
+                    x, y = poly[v].rotated(shape.body.angle) + bpos
+                    x2, y2 = poly[v+1].rotated(shape.body.angle) + bpos
+                    arcade.draw_line(x, y, x2, y2, arcade.color.BLACK, 1)
+                x, y = poly[-1].rotated(shape.body.angle) + bpos
+                x2, y2 = poly[0].rotated(shape.body.angle) + bpos
+                arcade.draw_line(x, y, x2, y2, arcade.color.BLACK, 1)
             elif shape.__class__.__name__ == "Segment":
                 bpos = shape.body.position
                 arcade.draw_line(shape.a[0] + bpos[0], shape.a[1] + bpos[1], shape.b[0] + bpos[0], shape.b[1] + bpos[1],
@@ -233,7 +234,6 @@ class PhysicsDumper():
         xmlshape.set("id", shp)
         xmlshape.set("elasticity", str(s.elasticity))
         xmlshape.set("friction", str(s.friction))
-        xmlshape.set("density", str(s.density))
         xmlshape.set("radius", str(s.radius))
         if s.__class__.__name__ == "Segment":
             xmlshape.set("a_x", str(s.a[0]))
@@ -250,6 +250,9 @@ class PhysicsDumper():
             xmlshape.set("offset_x", str(s.offset.x))
             xmlshape.set("offset_y", str(s.offset.y))
             xmlshape.set("type", 'CIRCLE')
+
+        # TODO [EH] not obligatory
+        xmlshape.set("density", str(s.density))
 
     def dumpConstraints(self, constraintsElement, c, obj):
         cns: Optional[pymunk.Constraint] = obj.cns[c]
@@ -335,6 +338,7 @@ class PhysicsDumper():
             constraint.set("type", "SimpleMotor")
             constraint.set("rate", str(cns.rate))
 
+        # TODO [EH] not obligatory data
         constraint.set("collide_bodies", str(cns.collide_bodies))
         constraint.set("error_bias", str(cns.error_bias))
         constraint.set("max_bias", str(cns.max_bias))
@@ -565,7 +569,7 @@ class PhysicsDumper():
 
         elif cntype == 'SimpleMotor':
             rate = float(c.attrib['rate'])
-            obj.cns[cname] = pymunk.GearJoint(a, b, rate)
+            obj.cns[cname] = pymunk.SimpleMotor(a, b, rate)
 
         space.add(obj.cns[cname])
         error_bias = float(c.attrib["error_bias"]) if c.attrib["error_bias"] != 'inf' else pymunk.inf
@@ -723,10 +727,20 @@ class Vehicle:
                 # TODO [EH] change to sprite flipping, not whole texture
                 # TODO [EH] ... but weirdly sprite got one scale :D
                 self.bdTex[n].texture_transform.scale(-1, 1)
-        # swap bodies in space
-        # self.bd['lw'].position, self.bd['rw'].position = self.bd['rw'].position, self.bd['lw'].position
-        # assuming body 'b' are wheels, body 'a' is car frame:
-        # TODO [EH]
+        self.bdTex['lw'], self.bdTex['rw'] = self.bdTex['rw'], self.bdTex['lw']
+        lshapes = self.bd['lw'].shapes
+        rshapes = self.bd['rw'].shapes
+        # TODO [EH] not good but works
+        # TODO [EH] swap shapes, leave bodies as is. This needs to be changed (along with acceleration)
+        for shape in lshapes:
+            shape.space.remove(shape)
+            shape.body = self.bd['rw']
+            shape.space.add(shape)
+        for shape in rshapes:
+            shape.space.remove(shape)
+            shape.body = self.bd['lw']
+            shape.space.add(shape)
+        # TODO [EH] Swap constraints and bodies
 
     def moveTo(self, x, y):
         for i in self.bd:
@@ -735,6 +749,8 @@ class Vehicle:
     def draw(self, drawVectors=True, drawGraphics=True):
 
         if self.dir != self.prevDir:
+            self.acc_l = 0
+            self.acc_r = 0
             self.flip()
             self.prevDir = self.dir
 
@@ -742,10 +758,10 @@ class Vehicle:
             Util.drawVectors(self.shp)
 
         if drawGraphics:
-            for i in ['head', 'lw', 'rw']:
-                self.bdTex[i].set_position(self.bd[i].position.x, self.bd[i].position.y)
-                self.bdTex[i].angle = self.bd[i].angle * 180 / math.pi
-                self.bdTex[i].draw()
+            for body in sorted(self.bd.keys()):
+                self.bdTex[body].set_position(self.bd[body].position.x, self.bd[body].position.y)
+                self.bdTex[body].angle = self.bd[body].angle * 180 / math.pi
+                self.bdTex[body].draw()
 
     def update(self, key = None):
 
