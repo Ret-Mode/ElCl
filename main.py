@@ -7,6 +7,7 @@ import math
 import time
 
 # game imports
+import pyglet.gl
 import arcade
 import pymunk
 
@@ -166,7 +167,7 @@ class PhysicsDumper():
             for b in obj.bd:
                 self.dumpBodyWithTex(bodies, b, obj, fullDump)
         elif obj.type == 'autogeometry':
-            self.dumpAutogeometry(root, obj)
+            self.dumpAutogeometry(root, obj, svgPath=path[:path.rfind('\\')+1])
         elif obj.type == 'level':
             root.set("player_x", str(obj.player_x))
             root.set("player_y", str(obj.player_y))
@@ -185,7 +186,8 @@ class PhysicsDumper():
 
         # NOTE [EH] fix newlines
         xml_s = ET.tostring(root, encoding="unicode").replace('</root>', '\n</root>')
-        for i in ['<bodies>', '</bodies>', '<bodies />', '<constraints>', '<constraints />', '</constraints>']:
+        for i in ['<bodies>', '</bodies>', '<bodies />', '<constraints>', '<constraints />', '</constraints>',
+                  '<svg_file ']:
             xml_s = xml_s.replace(i, '\n '+ i)
         for i in ['<body ', '</body>', '<body />', '<constraint ', '</constraint>', '<constraint /> ']:
             xml_s = xml_s.replace(i, '\n  ' + i)
@@ -196,13 +198,20 @@ class PhysicsDumper():
         f.write(str(xml_s))
         f.close()
 
-    def dumpAutogeometry(self, rootElem: Optional[ET.Element], obj, fullDump=False):
+    def dumpAutogeometry(self, rootElem: Optional[ET.Element], obj, fullDump=False, svgPath=None):
         texName: Optional[str] = obj.t.name
         baseDir = Util.getLevelsPath()
         if texName.startswith(baseDir):
             texName = texName[len(baseDir):texName.find('.png') + 4]
             if texName[0] == '\\' or texName[0] == '/':
                 texName = texName[1:]
+
+        space = None
+        for i in obj.bd:
+            space = obj.bd[i].space
+        if space:
+            rootElem.set("space_gravity", str(space.gravity[0]) + ' ' + str(space.gravity[1]))
+            rootElem.set("space_damping", str(space.damping))
         rootElem.set("texture", texName)
         rootElem.set("density_x", str(obj.density_x))
         rootElem.set("density_y", str(obj.density_y))
@@ -222,7 +231,7 @@ class PhysicsDumper():
 
         svgElem: Optional[ET.SubElement] = ET.SubElement(rootElem, 'svg_file')
         svgElem.set('path', texName + ".svg")
-        svg_parser.dumpSvg(baseDir, texName, obj.scale,obj.t.width, obj.t.height, obj.segments)
+        svg_parser.dumpSvg(svgPath if svgPath else baseDir, texName, obj.scale, obj.t.width, obj.t.height, obj.segments)
 
 
     def dumpBodyWithTex(self, bodiesElem: Optional[ET.Element], b: str, obj, fullDump=False):
@@ -464,7 +473,7 @@ class PhysicsDumper():
         if cns.max_force != pymunk.inf or fullDump:
             constraint.set("max_force", str(cns.max_force))
 
-    def readData(self, path, space):
+    def readData(self, path, space: pymunk.Space):
         tree = ET.parse(path)
         root = tree.getroot()
         obj = None
@@ -480,6 +489,13 @@ class PhysicsDumper():
                     obj.src = "cubes"
                     obj.getMarchingCubes(obj.density_x, obj.density_y)
                 obj.sendSegmentsToPhysics(space)
+
+                if 'space_gravity' in root.attrib:
+                    x, y = root.attrib['space_gravity'].split()
+                    space.gravity = (float(x), float(y))
+                if 'space_damping' in root.attrib:
+                    space.damping = float(root.attrib['space_damping'])
+
                 return obj
 
             elif root.attrib["type"] == 'level':
@@ -848,7 +864,7 @@ class Level2:
     def getMarchingCubes(self, density_x: int, density_y: int):
         def segment_func(v0, v1):
             seg = (((v0[0] * self.scale, v0[1] * self.scale),
-                   (v1[0] * self.scale, v1[1] * self.scale)))
+                   (v1[0] * self.scale, v1[1] * self.scale),),)
             self.segments.append(seg)
 
         def sample_func(point):
@@ -1029,7 +1045,7 @@ class MyGame(arcade.Window):
 
         arcade.set_background_color(arcade.csscolor.CORNFLOWER_BLUE)
 
-
+        self.spriteList = arcade.SpriteList()
 
         self.space = None
         self.bike = None
@@ -1074,6 +1090,8 @@ class MyGame(arcade.Window):
         self.level = PhysicsDumper().readData(self.levels[self.levels[-1]], self.space)
         self.bike = PhysicsDumper().readData(self.vehicles[self.vehicles[-1]], self.space)
         self.bike.moveTo(self.level.player_x, self.level.player_y)
+        for i in self.bike.bdTex:
+            self.spriteList.append(self.bike.bdTex[i])
 
         self.music = arcade.Sound(":resources:music/1918.mp3", streaming=True)
         self.music.play(0.02)
@@ -1103,6 +1121,7 @@ class MyGame(arcade.Window):
 
         self.level.draw(self.drawVectors, self.drawGraphics)
         self.bike.draw(self.drawVectors, self.drawGraphics)
+        #self.spriteList.draw(filter = pyglet.gl.GL_NEAREST)
 
         if self.drawText:
             arcade.draw_text(self.cwd, v[0] + 700, v[2] + 75, arcade.color.BLACK, 12, font_name=self.fn)
@@ -1141,9 +1160,13 @@ class MyGame(arcade.Window):
         elif key == arcade.key.V:
             self.processPhysics = not self.processPhysics
         elif key == arcade.key.B:
+            for i in self.bike.bdTex:
+                self.spriteList.remove(self.bike.bdTex[i])
             self.bike.remove(self.space)
             self.bike = PhysicsDumper().readData(self.vehicles[self.vehicles[-1]], self.space)
             self.bike.moveTo(self.level.player_x, self.level.player_y)
+            for i in sorted(self.bike.bdTex.keys()):
+                self.spriteList.append(self.bike.bdTex[i])
         elif key == arcade.key.N:
             type = self.level.type[:]
             self.level.remove(self.space)
@@ -1156,10 +1179,13 @@ class MyGame(arcade.Window):
         elif key == arcade.key.ESCAPE:
             self.close()
         elif key == arcade.key.F:
+            for i in self.bike.bdTex:
+                self.spriteList.remove(self.bike.bdTex[i])
             self.bike.remove(self.space)
             self.bike = PhysicsDumper().readData(Util.getNextEntity(self.vehicles), self.space)
             self.bike.moveTo(self.level.player_x, self.level.player_y)
-
+            for i in sorted(self.bike.bdTex.keys()):
+                self.spriteList.append(self.bike.bdTex[i])
     def on_key_release(self, key: int, modifiers: int):
 
         if key in self.key.k:
