@@ -21,12 +21,13 @@ svg_format = """<svg
       height="{i_height}"
        style="image-rendering:optimizeSpeed"
        id="image1" />
-   <path
-      style="fill:none;stroke:#000000;stroke-width:1.00631px;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1"
-      d="m {xy_delta}"
-      id="path1" />
-</svg>"""
+{paths}</svg>"""
 
+svg_paths = '''   <path
+      style="fill:none;stroke:#000000;stroke-width:1.00631px;stroke-linecap:butt;stroke-linejoin:miter;stroke-opacity:1"
+      d="{xy_delta}"
+      id="shape_{shape_id}" />
+'''
 
 def readSvg(path: str, scale: float) -> List[float]:
     height: float = 0
@@ -95,14 +96,19 @@ def readSvg(path: str, scale: float) -> List[float]:
     return segmentList
 
 
-def dumpSvg(destPath: str, texture: str, scale: float, imgWidth, imgHeight, segmentsScaled: List[Tuple[Tuple[float, float], Tuple[float, float]]]):
+def dumpSvg(destPath: str, texture: str, scale: float, imgWidth, imgHeight, segmentsScaled: List[Tuple[Tuple[Tuple[float, float], Tuple[float, float]]]]):
     fileName = destPath + texture + ".svg"
 
-    deltas = str(segmentsScaled[0][0][0]/scale) + ',' + str(imgHeight - (segmentsScaled[0][0][1])/scale) + ' '
-    for i in segmentsScaled:
-        deltas = deltas + str((i[1][0] - i[0][0])/scale) + ',' + str((i[0][1] - i[1][1])/scale) + ' '
+    paths = ''
+    shapeId = 1
+    for segment in segmentsScaled:
+        deltas = 'm ' + str(segment[0][0][0]/scale) + ',' + str(imgHeight - (segment[0][0][1])/scale)
+        for i in segment:
+            deltas = deltas + ' ' + str((i[1][0] - i[0][0])/scale) + ',' + str((i[0][1] - i[1][1])/scale)
+        paths += svg_paths.format(xy_delta=deltas, shape_id=shapeId)
+        shapeId += 1
     with open(fileName, "w") as svgFile:
-        svgFile.write(svg_format.format(i_height=imgHeight, i_width=imgWidth, f_path=texture, xy_delta=deltas))
+        svgFile.write(svg_format.format(i_height=imgHeight, i_width=imgWidth, f_path=texture, paths=paths))
 
 
 
