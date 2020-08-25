@@ -20,6 +20,8 @@ import xml.etree.ElementTree as ET
 # PyCharm type helper
 from typing import Optional
 
+import svg_parser
+
 # TODO [EH] shall it stay global? Move it into direct call?
 SCREEN_WIDTH = 1000
 SCREEN_HEIGHT = 650
@@ -95,23 +97,30 @@ class Util:
         # TODO [EH] use them yet
         bodiesToFlip = []
         mainBody.angle -= angleCorrection
-        ang_vel = mainBody.angular_velocity
         for cnsId, cnsInternals in cnsDict.items():
             space = cnsInternals.a.space
-            space.remove(cnsInternals)
+
             if cnsInternals.__class__.__name__ in ["PinJoint", "SlideJoint", "PivotJoint", "DampedSpring"]:
+                a: pymunk.Body = cnsInternals.a
+                b: pymunk.Body = cnsInternals.b
+                space.remove(cnsInternals)
                 cnsInternals.anchor_b = (-cnsInternals.anchor_b.x, cnsInternals.anchor_b.y)
                 cnsInternals.anchor_a = (-cnsInternals.anchor_a.x, cnsInternals.anchor_a.y)
+                space.add(cnsInternals)
                 if cnsInternals.b not in bodiesToFlip:
                     bodiesToFlip.append(cnsInternals.b)
             elif cnsInternals.__class__.__name__ == "GrooveJoint":
+                space.remove(cnsInternals)
                 cnsInternals.anchor_b = (-cnsInternals.anchor_b.x, cnsInternals.anchor_b.y)
                 cnsInternals.groove_a = (-cnsInternals.groove_a.x, cnsInternals.groove_a.y)
                 cnsInternals.groove_b = (-cnsInternals.groove_b.x, cnsInternals.groove_b.y)
+                space.add(cnsInternals)
                 if cnsInternals.b not in bodiesToFlip:
                     bodiesToFlip.append(cnsInternals.b)
-            space.add(cnsInternals)
+
         for bodyToFlip in bodiesToFlip:
+
+            b = bodyToFlip
             space.remove(bodyToFlip)
 
             dest = bodyToFlip.position - mainBody.position
@@ -119,11 +128,8 @@ class Util:
             dest.x *= -1
             dest.rotate(mainBody.angle)
             bodyToFlip.position = dest + mainBody.position
-            #bodyToFlip.angle *= -1
 
             space.add(bodyToFlip)
-
-        mainBody.angular_velocity = ang_vel
 
 
 class Keys:
@@ -213,6 +219,11 @@ class PhysicsDumper():
 
         rootElem.set("player_x", str(obj.player_x))
         rootElem.set("player_y", str(obj.player_y))
+
+        svgElem: Optional[ET.SubElement] = ET.SubElement(rootElem, 'svg_file')
+        svgElem.set('path', texName + ".svg")
+        svg_parser.dumpSvg(baseDir, texName, obj.scale,obj.t.width, obj.t.height, obj.segments)
+
 
     def dumpBodyWithTex(self, bodiesElem: Optional[ET.Element], b: str, obj, fullDump=False):
         body: Optional[pymunk.Body] = obj.bd[b]
@@ -463,8 +474,12 @@ class PhysicsDumper():
                 # damn, swapped obj and path args :(
                 obj = Level2()
                 obj.type = root.attrib["type"]
+                obj.src = "svg"
                 self.readAutogeometry(root, obj, path)
-                obj.getMarchingCubes(obj.density_x, obj.density_y).sendSegmentsToPhysics(space)
+                if len(obj.segments) == 0:
+                    obj.src = "cubes"
+                    obj.getMarchingCubes(obj.density_x, obj.density_y)
+                obj.sendSegmentsToPhysics(space)
                 return obj
 
             elif root.attrib["type"] == 'level':
@@ -509,6 +524,10 @@ class PhysicsDumper():
 
         obj.player_x = float(root.attrib["player_x"])
         obj.player_y = float(root.attrib["player_y"])
+
+        for child in root:
+            if child.tag == 'svg_file':
+                obj.segments = svg_parser.readSvg(Util.getFileFromOtherFilePath(path, child.attrib["path"]), obj.scale)
 
     def readBodyWithTex(self, body, obj, space, path: str):
         type = body.attrib['type']
@@ -709,14 +728,10 @@ class PhysicsDumper():
                                                  stiffness, damping)
 
         elif cntype == 'DampedRotarySpring':
-            a_a_x = float(c.attrib['anchor_a_x'])
-            a_a_y = float(c.attrib['anchor_a_y'])
-            a_b_x = float(c.attrib['anchor_b_x'])
-            a_b_y = float(c.attrib['anchor_b_y'])
             rest_angle = float(c.attrib['rest_angle'])
             stiffness = float(c.attrib['stiffness'])
             damping = float(c.attrib['damping'])
-            obj.cns[cname] = pymunk.DampedSpring(a, b, (a_a_x, a_a_y), (a_b_x, a_b_y), rest_angle,
+            obj.cns[cname] = pymunk.DampedRotarySpring(a, b, rest_angle,
                                                  stiffness, damping)
 
         elif cntype == 'RotaryLimitJoint':
@@ -801,6 +816,7 @@ class Level2:
         self.cns = {}
         self.type = "autogeometry"
         self.t: Optional[arcade.Texture] = None
+
         self.segments = []
         self.density_x = 60
         self.density_y = 60
@@ -831,8 +847,9 @@ class Level2:
 
     def getMarchingCubes(self, density_x: int, density_y: int):
         def segment_func(v0, v1):
-            self.segments.append(((v0[0] * self.scale, v0[1] * self.scale),
-                                  (v1[0] * self.scale, v1[1] * self.scale)))
+            seg = (((v0[0] * self.scale, v0[1] * self.scale),
+                   (v1[0] * self.scale, v1[1] * self.scale)))
+            self.segments.append(seg)
 
         def sample_func(point):
             x = int(point.x)
@@ -850,11 +867,14 @@ class Level2:
         # TODO [EH] Should it be dumped to xml with texture setup?
         self.bd['new'] = pymunk.Body(1.0, 1.0, pymunk.Body.STATIC)
         space.add(self.bd['new'])
-        for i in range(len(self.segments)):
-            self.shp[str(i)] = pymunk.Segment(self.bd['new'], self.segments[i][0], self.segments[i][1], 1)
-            space.add(self.shp[str(i)])
-            self.shp[str(i)].friction = self.friction
-            self.shp[str(i)].elasticity = self.elasticity
+        s_id = 1
+        for elems in range(len(self.segments)):
+            for i in self.segments[elems]:
+                sName = str(i) + '_' + str(s_id)
+                self.shp[sName] = pymunk.Segment(self.bd['new'], i[0], i[1], 1)
+                space.add(self.shp[sName])
+                self.shp[sName].friction = self.friction
+                self.shp[sName].elasticity = self.elasticity
 
     def draw(self, drawVectors=True, drawGraphics=True):
         if drawGraphics:
@@ -864,7 +884,8 @@ class Level2:
             # seems faster than get all of the data from shape...
             # TODO [EH] needs to be profiled i guess
             for i in self.segments:
-                arcade.draw_line(i[0][0], i[0][1], i[1][0], i[1][1], arcade.color.LEMON, 1)
+                for j in i:
+                    arcade.draw_line(j[0][0], j[0][1], j[1][0], j[1][1], arcade.color.LEMON, 1)
 
 
 class Vehicle:
@@ -877,6 +898,7 @@ class Vehicle:
         self.cns = {}
         self.bdTex = {}
         self.dir = 1  # TODO [EH] create some normal directions, now 1 is left wheel, -1 is right wheel
+        self.postFlipAngleUpdate = 0.0
         self.prevDir = 1
         self.differential = False
         self.differentialDest = {}
@@ -909,11 +931,14 @@ class Vehicle:
                 # TODO [EH] ... but weirdly sprite got one scale :D
                 self.bdTex[n].texture_transform.scale(-1, 1)
 
+        # reset acceleration of every motor wheel
         for motorId in self.motorParams:
             self.motorParams[motorId][2] = 0.0
 
-        Util.flipConstraints(self.cns, self.bd[self.centralId], -self.startAngle * self.dir)
+        self.postFlipAngleUpdate = self.bd[self.centralId].angular_velocity
 
+        Util.flipConstraints(self.cns, self.bd[self.centralId], -self.startAngle * self.dir)
+        # self.postFlipAngleUpdate = self.bd[self.centralId].angular_velocity
         # TODO [EH] Swap constraints and bodies
 
     def moveTo(self, x, y):
@@ -922,20 +947,22 @@ class Vehicle:
 
     def draw(self, drawVectors=True, drawGraphics=True):
 
-        if self.dir != self.prevDir:
-            self.flip()
-            self.prevDir = self.dir
-
-        if drawVectors:
-            Util.drawVectors(self.shp)
-
         if drawGraphics:
             for body in sorted(self.bd.keys()):
                 self.bdTex[body].set_position(self.bd[body].position.x, self.bd[body].position.y)
                 self.bdTex[body].angle = self.bd[body].angle * 180 / math.pi
                 self.bdTex[body].draw()
 
+        if drawVectors:
+            Util.drawVectors(self.shp)
+
     def update(self, key = None):
+
+        # if self.postFlipAngleUpdate != 0.0:
+        #     self.bd[self.centralId].angular_velocity += self.postFlipAngleUpdate
+        #     self.postFlipAngleUpdate /= 1.5
+        #     if 0.01 > self.postFlipAngleUpdate > -0.01:
+        #         self.postFlipAngleUpdate = 0.0
 
         if key:
             if key.k[arcade.key.E]:
@@ -978,14 +1005,15 @@ class Vehicle:
                         self.bd[dest].angular_velocity = self.bd[src].angular_velocity
 
             if key.k[arcade.key.D]:
-                self.bd[self.centralId].apply_force_at_local_point((2120, 0), (0, 30))
-                self.bd[self.centralId].apply_force_at_local_point((-2120, 0), (0, -30))
+                self.bd[self.centralId].apply_impulse_at_local_point((2120/100, 0), (0, 30))
+                self.bd[self.centralId].apply_impulse_at_local_point((-2120/100, 0), (0, -30))
             if key.k[arcade.key.A]:
-                self.bd[self.centralId].apply_force_at_local_point((-2120, 0), (0, 30))
-                self.bd[self.centralId].apply_force_at_local_point((2120, 0), (0, -30))
+                self.bd[self.centralId].apply_impulse_at_local_point((-2120/100, 0), (0, 30))
+                self.bd[self.centralId].apply_impulse_at_local_point((2120/100, 0), (0, -30))
             if key.k[arcade.key.SPACE]:
                 self.dir *= -1
-
+                self.flip()
+                self.prevDir = self.dir
             key.unsetKey(arcade.key.SPACE)
 
 
