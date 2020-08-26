@@ -19,7 +19,8 @@ import pstats
 import xml.etree.ElementTree as ET
 
 # PyCharm type helper
-from typing import Optional
+from typing import Optional, Dict, List
+
 
 import svg_parser
 
@@ -29,6 +30,20 @@ SCREEN_HEIGHT = 650
 SCREEN_TITLE = "Platformer"
 
 EXEC_FOLDER = os.getcwd()
+
+
+class RoundIterator:
+    def __init__(self, array: List):
+        self._elements = 0
+        self._array = array
+
+    def next(self):
+        self._elements += 1
+        self._elements %= len(self._array)
+        return self._array[self._elements]
+
+    def current(self):
+        return self._array[self._elements]
 
 
 # temporary - don't know where to put those functions really :D
@@ -199,7 +214,7 @@ class PhysicsDumper():
         f.close()
 
     def dumpAutogeometry(self, rootElem: Optional[ET.Element], obj, fullDump=False, svgPath=None):
-        texName: Optional[str] = obj.t.name
+        texName: Optional[str] = obj.t.texture.name
         baseDir = Util.getLevelsPath()
         if texName.startswith(baseDir):
             texName = texName[len(baseDir):texName.find('.png') + 4]
@@ -529,10 +544,16 @@ class PhysicsDumper():
         return obj
 
     def readAutogeometry(self, root: Optional[ET.Element], obj, path: str):
-        obj.t = arcade.load_texture(Util.getFileFromOtherFilePath(path, root.attrib["texture"]))
+        obj.scale = float(root.attrib["scale"]) if "scale" in root.attrib else 1.0
+        obj.t = arcade.sprite.Sprite(Util.getFileFromOtherFilePath(path, root.attrib["texture"]),
+                                     obj.scale)
+        # obj.t._sprite_list = arcade.sprite_list.SpriteList()
+        # obj.t._sprite_list.append(obj.t)
+        obj.t.draw()
+        obj.t.position = obj.t.width/2, obj.t.height/2
         obj.density_x = int(root.attrib["density_x"])
         obj.density_y = int(root.attrib["density_y"])
-        obj.scale = float(root.attrib["scale"]) if "scale" in root.attrib else 1.0
+
         obj.alpha_threshold = float(root.attrib["alpha_threshold"]) if "alpha_threshold" in root.attrib else 0.5
         obj.friction = float(root.attrib["friction"]) if "friction" in root.attrib else 0.0
         obj.elasticity = float(root.attrib["elasticity"]) if "elasticity" in root.attrib else 0.0
@@ -583,14 +604,19 @@ class PhysicsDumper():
         obj.bd[name].position = px, py
         obj.bd[name].angle = angle
 
-        obj.bdTex[name]: arcade.Sprite = arcade.Sprite(Util.getFileFromOtherFilePath(path, body.attrib["texture"]))
+        scale = 1.0
+        if 'texture_scale' in body.attrib:
+            scale = float(body.attrib['texture_scale'])
+        obj.bdTex[name]: arcade.sprite.Sprite = arcade.sprite.Sprite(Util.getFileFromOtherFilePath(path, body.attrib["texture"]), scale)
+        obj.bdTex[name].draw()
+        # obj.bdTex[name]._sprite_list = arcade.sprite_list.SpriteList()
+        # obj.bdTex[name]._sprite_list.append(obj.bdTex[name])
         if "texture_flip_lr" in body.attrib:
             texRot = body.attrib["texture_flip_lr"]
         obj.bdTex[name].texture_rotation = True if texRot == 'True' else False
-        if 'texture_scale' in body.attrib:
-            scale = float(body.attrib['texture_scale'])
-        obj.bdTex[name].scale = scale
-        #obj.bdTex[name].texture_transform.scale(obj.bdTex[name].texture_scale_x, obj.bdTex[name].texture_scale_y)
+
+        # obj.bdTex[name].scale = scale
+        # obj.bdTex[name].texture_transform.scale(obj.bdTex[name].texture_scale_x, obj.bdTex[name].texture_scale_y)
 
         # TODO [EH] car related params --> needs to be moved from here?
         if 'motor' in body.attrib and 'speed' in body.attrib:
@@ -795,10 +821,10 @@ class PhysicsDumper():
 class Level:
 
     def __init__(self):
-        self.bd = {}
-        self.shp = {}
-        self.cns = {}
-        self.type = "level"
+        self.bd: Dict[pymunk.Body] = {}
+        self.shp: Dict[pymunk.Shape] = {}
+        self.cns: Dict[pymunk.Constraint] = {}
+        self.type: str = "level"
         self.player_x = 300
         self.player_y = 300
 
@@ -816,7 +842,7 @@ class Level:
         #PhysicsDumper().readData(path, space)
         #PhysicsDumper('level_4.xml', EXEC_FOLDER).dumpData(self)
 
-    def draw(self, drawVectors=True, drawGraphics=True):
+    def draw(self, drawVectors=True, drawGraphics=True, filter=None):
 
         if drawVectors:
             Util.drawVectors(self.shp)
@@ -827,11 +853,11 @@ class Level:
 class Level2:
 
     def __init__(self):
-        self.bd = {}
-        self.shp = {}
-        self.cns = {}
+        self.bd: Dict[pymunk.Body] = {}
+        self.shp: Dict[pymunk.Shape] = {}
+        self.cns: Dict[pymunk.Constraint] = {}
         self.type = "autogeometry"
-        self.t: Optional[arcade.Texture] = None
+        self.t: Optional[arcade.sprite.Sprite] = None
 
         self.segments = []
         self.density_x = 60
@@ -850,6 +876,7 @@ class Level2:
             space.remove(self.shp[v])
         for v in self.bd:
             space.remove(self.bd[v])
+        self.t.kill()
         self.t = None
 
     def create(self, space):
@@ -869,11 +896,11 @@ class Level2:
 
         def sample_func(point):
             x = int(point.x)
-            y = self.t.height - 1 - int(point.y)
-            return self.t.image.getpixel((x, y))[3] / 255
+            y = self.t.texture.height - 1 - int(point.y)
+            return self.t.texture.image.getpixel((x, y))[3] / 255
 
         # TODO [EH] - add parameter whether march_soft or march_hard will be performed
-        pymunk.autogeometry.march_soft(pymunk.BB(0, 0, self.t.width-1, self.t.height-1), density_x, density_y,
+        pymunk.autogeometry.march_soft(pymunk.BB(0, 0, self.t.texture.width-1, self.t.texture.height-1), density_x, density_y,
                                        self.alpha_threshold, segment_func, sample_func)
 
         return self
@@ -892,10 +919,13 @@ class Level2:
                 self.shp[sName].friction = self.friction
                 self.shp[sName].elasticity = self.elasticity
 
-    def draw(self, drawVectors=True, drawGraphics=True):
+    def draw(self, drawVectors=True, drawGraphics=True, filter=None):
         if drawGraphics:
             # TODO [EH] how to scale for nearest neighbour?
-            arcade.draw_scaled_texture_rectangle(self.t.width*self.scale/2, self.t.height*self.scale/2, self.t, self.scale)
+            #arcade.draw_scaled_texture_rectangle(self.t.width*self.scale/2, self.t.height*self.scale/2, self.t, self.scale)
+            self.t._sprite_list._texture.filter = filter
+            self.t.draw()
+            pass
         if drawVectors:
             # seems faster than get all of the data from shape...
             # TODO [EH] needs to be profiled i guess
@@ -912,7 +942,7 @@ class Vehicle:
         self.bd = {}
         self.shp = {}
         self.cns = {}
-        self.bdTex = {}
+        self.bdTex: Dict[arcade.sprite.Sprite] = {}
         self.dir = 1  # TODO [EH] create some normal directions, now 1 is left wheel, -1 is right wheel
         self.postFlipAngleUpdate = 0.0
         self.prevDir = 1
@@ -961,12 +991,13 @@ class Vehicle:
         for i in self.bd:
             self.bd[i].position += (x, y)
 
-    def draw(self, drawVectors=True, drawGraphics=True):
+    def draw(self, drawVectors=True, drawGraphics=True, filter=None):
 
         if drawGraphics:
             for body in sorted(self.bd.keys()):
                 self.bdTex[body].set_position(self.bd[body].position.x, self.bd[body].position.y)
                 self.bdTex[body].angle = self.bd[body].angle * 180 / math.pi
+                self.bdTex[body]._sprite_list._texture.filter = filter
                 self.bdTex[body].draw()
 
         if drawVectors:
@@ -1045,6 +1076,8 @@ class MyGame(arcade.Window):
 
         arcade.set_background_color(arcade.csscolor.CORNFLOWER_BLUE)
 
+        self.filter = self.ctx.NEAREST
+        self.zoom = 1.0
         self.spriteList = arcade.SpriteList()
 
         self.space = None
@@ -1065,8 +1098,10 @@ class MyGame(arcade.Window):
         self.drawText = True
         self.printPhysicElems = False
 
-        self.vehicles = Util.getAllEntityFiles(Util.getVehiclePath())
-        self.levels = Util.getAllEntityFiles(Util.getLevelsPath())
+        self.vehicles = RoundIterator(Util.getAllEntityFiles(Util.getVehiclePath()))
+        self.levels = RoundIterator(Util.getAllEntityFiles(Util.getLevelsPath()))
+        self.filters = RoundIterator([(0x2600, 0x2600), # arcade.gl.context.NEAREST
+                                      (0x2601, 0x2601)]) # arcade.gl.context.LINEAR)])
 
         self.help = ''''W' and 'S' to steer, ' ' to change wheels,
 'A' and 'D' to rotate, 'E' to lock/unlock differential,
@@ -1087,11 +1122,12 @@ class MyGame(arcade.Window):
         self.space.gravity = (0, -100)
         self.space.damping = 1
 
-        self.level = PhysicsDumper().readData(self.levels[self.levels[-1]], self.space)
-        self.bike = PhysicsDumper().readData(self.vehicles[self.vehicles[-1]], self.space)
+        self.level = PhysicsDumper().readData(self.levels.current(), self.space)
+        self.bike = PhysicsDumper().readData(self.vehicles.current(), self.space)
         self.bike.moveTo(self.level.player_x, self.level.player_y)
-        for i in self.bike.bdTex:
-            self.spriteList.append(self.bike.bdTex[i])
+        # for i in self.bike.bdTex:
+        #     self.spriteList.append(self.bike.bdTex[i])
+        # self.spriteList.append(self.level.t)
 
         self.music = arcade.Sound(":resources:music/1918.mp3", streaming=True)
         self.music.play(0.02)
@@ -1119,9 +1155,9 @@ class MyGame(arcade.Window):
 
         v = arcade.get_viewport()
 
-        self.level.draw(self.drawVectors, self.drawGraphics)
-        self.bike.draw(self.drawVectors, self.drawGraphics)
-        #self.spriteList.draw(filter = pyglet.gl.GL_NEAREST)
+        self.level.draw(self.drawVectors, self.drawGraphics, self.filters.current())
+        self.bike.draw(self.drawVectors, self.drawGraphics, self.filters.current())
+        #self.spriteList.draw(filter=pyglet.gl.GL_NEAREST)
 
         if self.drawText:
             arcade.draw_text(self.cwd, v[0] + 700, v[2] + 75, arcade.color.BLACK, 12, font_name=self.fn)
@@ -1160,18 +1196,14 @@ class MyGame(arcade.Window):
         elif key == arcade.key.V:
             self.processPhysics = not self.processPhysics
         elif key == arcade.key.B:
-            for i in self.bike.bdTex:
-                self.spriteList.remove(self.bike.bdTex[i])
             self.bike.remove(self.space)
-            self.bike = PhysicsDumper().readData(self.vehicles[self.vehicles[-1]], self.space)
+            self.bike = PhysicsDumper().readData(self.vehicles.current(), self.space)
             self.bike.moveTo(self.level.player_x, self.level.player_y)
-            for i in sorted(self.bike.bdTex.keys()):
-                self.spriteList.append(self.bike.bdTex[i])
         elif key == arcade.key.N:
             type = self.level.type[:]
             self.level.remove(self.space)
             del self.level
-            self.level = PhysicsDumper().readData(Util.getNextEntity(self.levels), self.space)
+            self.level = PhysicsDumper().readData(self.levels.next(), self.space)
         elif key == arcade.key.Q:
             self.printFPS = not self.printFPS
         elif key == arcade.key.M:
@@ -1179,13 +1211,19 @@ class MyGame(arcade.Window):
         elif key == arcade.key.ESCAPE:
             self.close()
         elif key == arcade.key.F:
-            for i in self.bike.bdTex:
-                self.spriteList.remove(self.bike.bdTex[i])
             self.bike.remove(self.space)
-            self.bike = PhysicsDumper().readData(Util.getNextEntity(self.vehicles), self.space)
+            self.bike = PhysicsDumper().readData(self.vehicles.next(), self.space)
             self.bike.moveTo(self.level.player_x, self.level.player_y)
-            for i in sorted(self.bike.bdTex.keys()):
-                self.spriteList.append(self.bike.bdTex[i])
+        elif key == arcade.key.R:
+            if (modifiers & arcade.key.MOD_SHIFT):
+                if self.zoom < 3.0:
+                    self.zoom /= 0.9
+            else:
+                if self.zoom > 0.06:
+                    self.zoom *= 0.9
+        elif key == arcade.key.T:
+            self.filters.next()
+
     def on_key_release(self, key: int, modifiers: int):
 
         if key in self.key.k:
@@ -1205,11 +1243,12 @@ class MyGame(arcade.Window):
         if self.processPhysics:
             self.space.step(1/60)
 
+
         # Do the view scrolling
-        arcade.set_viewport(self.bike.bd['head'].position.x - SCREEN_WIDTH/2,
-                            self.bike.bd['head'].position.x + SCREEN_WIDTH/2,
-                            self.bike.bd['head'].position.y - SCREEN_HEIGHT/2,
-                            self.bike.bd['head'].position.y + SCREEN_HEIGHT/2)
+        arcade.set_viewport(self.bike.bd['head'].position.x - SCREEN_WIDTH/2/self.zoom,
+                            self.bike.bd['head'].position.x + SCREEN_WIDTH/2/self.zoom,
+                            self.bike.bd['head'].position.y - SCREEN_HEIGHT/2/self.zoom,
+                            self.bike.bd['head'].position.y + SCREEN_HEIGHT/2/self.zoom)
 
         self.munktime = time.time() - t
 
