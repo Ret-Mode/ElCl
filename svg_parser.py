@@ -2,7 +2,7 @@
 import xml.etree.ElementTree as ET
 
 # PyCharm type helper
-from typing import Optional, List, Tuple
+from typing import List, Tuple, Any, Union
 
 # there could be multiple paths in the file.
 # also - why other segments does not work?
@@ -29,7 +29,10 @@ svg_paths = '''   <path
       id="shape_{shape_id}" />
 '''
 
-def readSvg(path: str, scale: float) -> List[float]:
+
+def readSvg(path: str, scale: float) -> List[List[Union[
+    Tuple[Tuple[Union[float, Any], Union[float, Any]], Tuple[Union[float, Any], Union[float, Any]]], Tuple[
+        Tuple[Union[float, Any], Union[float, Any]], Tuple[Any, Any]]]]]:
     height: float = 0
     segmentList = []
     tree: ET = ET.parse(path)
@@ -109,7 +112,6 @@ def dumpSvg(destPath: str, texture: str, scale: float, imgWidth, imgHeight, segm
         shapeId += 1
     with open(fileName, "w") as svgFile:
         svgFile.write(svg_format.format(i_height=imgHeight, i_width=imgWidth, f_path=texture, paths=paths))
-
 
 
 if __name__ == "__main__":

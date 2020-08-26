@@ -35,11 +35,11 @@ EXEC_FOLDER = os.getcwd()
 class RoundIterator:
     def __init__(self, array: List):
         self._elements = 0
-        self._array = array
+        self._array = array[:]
 
     def next(self):
         self._elements += 1
-        self._elements %= len(self._array)
+        self._elements = self._elements % len(self._array)
         return self._array[self._elements]
 
     def current(self):
@@ -74,6 +74,7 @@ class Util:
                 arcade.draw_circle_filled(bpos[0], bpos[1], shape.radius,
                                  arcade.color.GREEN, 1)
 
+    # TODO [EH] add conditions for name/extension
     @staticmethod
     def getAllEntityFiles(path):
         output = []
@@ -81,15 +82,7 @@ class Util:
         for f in filesList:
             if f.endswith(".xml"):
                 output.append(path + f)
-        # currently selected car
-        output.append(0)
         return output
-
-    @staticmethod
-    def getNextEntity(entityList):
-        entityList[-1] = (entityList[-1] + 1) % (len(entityList) - 1)
-
-        return entityList[entityList[-1]]
 
     @staticmethod
     def getVehiclePath():
