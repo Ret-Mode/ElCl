@@ -101,7 +101,7 @@ class Util:
         return Util.getFolderFromFilePath(filePath) + '\\' + file
 
     @staticmethod
-    def flipConstraints(cnsDict, mainBody, angleCorrection):
+    def flipConstraints(cnsDict, mainBody, angleCorrection: float):
         # TODO [EH] now just one pass of update (chains like objects will end up crappy, byt we don't
         # TODO [EH] use them yet
         bodiesToFlip = []
@@ -129,16 +129,19 @@ class Util:
 
         for bodyToFlip in bodiesToFlip:
 
-            b = bodyToFlip
-            space.remove(bodyToFlip)
+            vel = bodyToFlip.velocity - mainBody.velocity
+            #space.remove(bodyToFlip)
 
             dest = bodyToFlip.position - mainBody.position
             dest.rotate(-mainBody.angle)
+            at = math.atan2(dest.x, dest.y)
             dest.x *= -1
             dest.rotate(mainBody.angle)
             bodyToFlip.position = dest + mainBody.position
-
-            space.add(bodyToFlip)
+            vel.rotate(2 * at)
+            bodyToFlip.velocity = mainBody.velocity + vel
+            #space.add(bodyToFlip)
+        mainBody.angle -= angleCorrection
 
 
 class Keys:
