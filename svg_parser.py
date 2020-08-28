@@ -73,10 +73,34 @@ def readSvg(path: str, scale: float) -> List[List[Union[
                         elif mode == 'H':
                             x = text[i]
                             x, y = float(x), py
-                        elif mode == 'l':
+                        elif mode == 'l' or mode == 't':
                             x, y = text[i].split(',')
                             x, y = px + float(x), py - float(y)
-                        elif mode == 'L':
+                        elif mode == 'L' or mode == 'T':
+                            x, y = text[i].split(',')
+                            x, y = float(x), height - float(y)
+                        elif mode == 'c':
+                            i += 2
+                            x, y = text[i].split(',')
+                            x, y = px + float(x), py - float(y)
+                        elif mode == 'C':
+                            i += 2
+                            x, y = text[i].split(',')
+                            x, y = float(x), height - float(y)
+                        elif mode == 's' or mode == 'q':
+                            i += 1
+                            x, y = text[i].split(',')
+                            x, y = px + float(x), py - float(y)
+                        elif mode == 'S' or mode == 'Q':
+                            i += 1
+                            x, y = text[i].split(',')
+                            x, y = float(x), height - float(y)
+                        elif mode == 'a':
+                            i += 5
+                            x, y = text[i].split(',')
+                            x, y = px + float(x), py - float(y)
+                        elif mode == 'A':
+                            i += 5
                             x, y = text[i].split(',')
                             x, y = float(x), height - float(y)
                         # TODO [EH] bezier curves
