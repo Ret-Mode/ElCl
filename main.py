@@ -224,8 +224,8 @@ class PhysicsDumper():
             rootElem.set("space_gravity", str(space.gravity[0]) + ' ' + str(space.gravity[1]))
             rootElem.set("space_damping", str(space.damping))
         rootElem.set("texture", texName)
-        rootElem.set("density_x", str(obj.density_x))
-        rootElem.set("density_y", str(obj.density_y))
+        rootElem.set("autogeometry_dx", str(obj.autogeometry_dx))
+        rootElem.set("autogeometry_dy", str(obj.autogeometry_dy))
         if obj.alpha_threshold != 0.5 or fullDump:
             rootElem.set("alpha_threshold", str(obj.alpha_threshold))
         if obj.scale != 1.0 or fullDump:
@@ -498,7 +498,7 @@ class PhysicsDumper():
                 self.readAutogeometry(root, obj, path)
                 if len(obj.segments) == 0:
                     obj.src = "cubes"
-                    obj.getMarchingCubes(obj.density_x, obj.density_y)
+                    obj.getMarchingCubes(obj.autogeometry_dx, obj.autogeometry_dy)
                 obj.sendSegmentsToPhysics(space)
 
                 if 'space_gravity' in root.attrib:
@@ -547,8 +547,8 @@ class PhysicsDumper():
         # obj.t._sprite_list.append(obj.t)
         obj.t.draw()
         obj.t.position = obj.t.width/2, obj.t.height/2
-        obj.density_x = int(root.attrib["density_x"])
-        obj.density_y = int(root.attrib["density_y"])
+        obj.autogeometry_dx = int(root.attrib["autogeometry_dx"])
+        obj.autogeometry_dy = int(root.attrib["autogeometry_dy"])
 
         obj.alpha_threshold = float(root.attrib["alpha_threshold"]) if "alpha_threshold" in root.attrib else 0.5
         obj.friction = float(root.attrib["friction"]) if "friction" in root.attrib else 0.0
@@ -856,8 +856,8 @@ class Level2:
         self.t: Optional[arcade.sprite.Sprite] = None
 
         self.segments = []
-        self.density_x = 60
-        self.density_y = 60
+        self.autogeometry_dx = 60
+        self.autogeometry_dy = 60
         self.scale = 2.0
         self.alpha_threshold = 0.5
         self.friction = 5
@@ -877,14 +877,14 @@ class Level2:
 
     def create(self, space):
         #PhysicsDumper().readData(path, space)
-        self.getMarchingCubes(self.density_x, self.density_y).sendSegmentsToPhysics(space)
+        self.getMarchingCubes(self.autogeometry_dx, self.autogeometry_dy).sendSegmentsToPhysics(space)
         #PhysicsDumper('level_3.xml', EXEC_FOLDER).dumpData(self)
 
     def getTexture(self, path):
         self.t = arcade.load_texture(path)
         return self
 
-    def getMarchingCubes(self, density_x: int, density_y: int):
+    def getMarchingCubes(self, autogeometry_dx: int, autogeometry_dy: int):
         def segment_func(v0, v1):
             seg = (((v0[0] * self.scale, v0[1] * self.scale),
                    (v1[0] * self.scale, v1[1] * self.scale),),)
@@ -896,7 +896,7 @@ class Level2:
             return self.t.texture.image.getpixel((x, y))[3] / 255
 
         # TODO [EH] - add parameter whether march_soft or march_hard will be performed
-        pymunk.autogeometry.march_soft(pymunk.BB(0, 0, self.t.texture.width-1, self.t.texture.height-1), density_x, density_y,
+        pymunk.autogeometry.march_soft(pymunk.BB(0, 0, self.t.texture.width-1, self.t.texture.height-1), autogeometry_dx, autogeometry_dy,
                                        self.alpha_threshold, segment_func, sample_func)
 
         return self
