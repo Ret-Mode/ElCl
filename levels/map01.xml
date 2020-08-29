@@ -1,0 +1,4 @@
+<root type="autogeometry" texture="map01.png" density_x="1024" density_y="128" scale="4.0" alpha_threshold="0.2" friction="5.0" elasticity="0.0" player_x="600.0" player_y="300.0">
+ <svg_file path="map01.svg" />
+ <constraints />
+</root>
