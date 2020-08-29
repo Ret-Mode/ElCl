@@ -923,11 +923,14 @@ class Level2:
             self.t.draw()
             pass
         if drawVectors:
-            # seems faster than get all of the data from shape...
-            # TODO [EH] needs to be profiled i guess
+            # TODO [EH] change to segment query directly from space or sorting, no it iterates everything
+            viewport = arcade.get_viewport()
             for i in self.segments:
                 for j in i:
-                    arcade.draw_line(j[0][0], j[0][1], j[1][0], j[1][1], arcade.color.LEMON, 1)
+                    if not ((j[0][0] < viewport[0] and j[1][0] < viewport[0]) or
+                            (j[0][0] > viewport[1] and j[1][0] > viewport[1])) and not ((j[0][1] < viewport[2] and j[1][1] < viewport[2]) or
+                                                                                    (j[0][1] > viewport[3] and j[1][1] > viewport[3])):
+                        arcade.draw_line(j[0][0], j[0][1], j[1][0], j[1][1], arcade.color.LEMON, 1)
 
 
 class Vehicle:
@@ -1083,7 +1086,7 @@ class MyGame(arcade.Window):
         self.ang_vel = 0
         self.music = None
         self.prevtime = time.time()
-        self.munktime = time.time()
+        self.frame_time = time.time()
         self.update_time = 0
         self.set_update_rate(1/60)
 
@@ -1117,6 +1120,7 @@ class MyGame(arcade.Window):
         self.space = pymunk.Space()
         self.space.gravity = (0, -100)
         self.space.damping = 1
+        self.dt = time.time()
 
         self.level = PhysicsDumper().readData(self.levels.current(), self.space)
         self.bike = PhysicsDumper().readData(self.vehicles.current(), self.space)
@@ -1236,9 +1240,11 @@ class MyGame(arcade.Window):
 
         self.bike.update(self.key)
 
-        if self.processPhysics:
-            self.space.step(1/60)
+        dt = time.time() - self.dt
 
+        if self.processPhysics:
+                self.space.step(dt)
+        self.dt = time.time()
 
         # Do the view scrolling
         arcade.set_viewport(self.bike.bd['head'].position.x - SCREEN_WIDTH/2/self.zoom,
@@ -1246,7 +1252,6 @@ class MyGame(arcade.Window):
                             self.bike.bd['head'].position.y - SCREEN_HEIGHT/2/self.zoom,
                             self.bike.bd['head'].position.y + SCREEN_HEIGHT/2/self.zoom)
 
-        self.munktime = time.time() - t
 
 
 def main():
