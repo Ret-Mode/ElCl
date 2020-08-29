@@ -1,3 +1,0 @@
-<root type="autogeometry" texture="mapa.png" density_x="60" density_y="60" scale="3.0" alpha_threshold="0.2" friction="5.0" elasticity="0.0" player_x="300.0" player_y="700.0">
- <constraints />
-</root>
