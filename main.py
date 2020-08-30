@@ -270,6 +270,10 @@ class PhysicsDumper():
             xmlbody.set("differential_dest", " ".join(obj.differentialDest[b]))
         if b == obj.centralId:
             xmlbody.set("central", "True")
+            if obj.rotational_force != 20.0:
+                xmlbody.set("rotational_force", str(obj.rotational_force))
+            if obj.rotational_limit != 2.0:
+                xmlbody.set("rotational_limit", str(obj.rotational_limit))
 
         # setup textures
         if obj.type == 'vehicle':
@@ -497,6 +501,7 @@ class PhysicsDumper():
                 obj.src = "svg"
                 self.readAutogeometry(root, obj, path)
                 if len(obj.segments) == 0:
+                    print("Physics data not found in svg. Fallback to autogeometry.")
                     obj.src = "cubes"
                     obj.getMarchingCubes(obj.autogeometry_dx, obj.autogeometry_dy)
                 obj.sendSegmentsToPhysics(space)
@@ -626,6 +631,14 @@ class PhysicsDumper():
         if 'central' in body.attrib and body.attrib['central'] == "True":
             obj.centralId = name
             obj.startAngle = angle
+            obj.rotational_force = 20.0
+            obj.rotational_limit = 2.0
+            if "rotational_force" in body.attrib:
+                obj.rotational_force = float(body.attrib['rotational_force'])
+            if "rotational_limit" in body.attrib:
+                obj.rotational_limit = float(body.attrib['rotational_limit'])
+
+
 
         for shape in body:
             if shape.tag == 'shape':
@@ -949,6 +962,8 @@ class Vehicle:
         self.differentialDest = {}
         self.speed = 20
         self.startAngle = 0.0
+        self.rotational_force = 20
+        self.rotational_limit = 2
         self.centralId = ""
         self.motorParams = {}
 
@@ -1050,12 +1065,16 @@ class Vehicle:
                     for dest in self.differentialDest[src]:
                         self.bd[dest].angular_velocity = self.bd[src].angular_velocity
 
-            if key.k[arcade.key.D]:
-                self.bd[self.centralId].apply_impulse_at_local_point((2120/100, 0), (0, 30))
-                self.bd[self.centralId].apply_impulse_at_local_point((-2120/100, 0), (0, -30))
-            if key.k[arcade.key.A]:
-                self.bd[self.centralId].apply_impulse_at_local_point((-2120/100, 0), (0, 30))
-                self.bd[self.centralId].apply_impulse_at_local_point((2120/100, 0), (0, -30))
+            if key.k[arcade.key.D] and self.bd[self.centralId].angular_velocity > -self.rotational_limit:
+
+                self.bd[self.centralId].apply_impulse_at_local_point((self.rotational_force, 0), (0, 30))
+                self.bd[self.centralId].apply_impulse_at_local_point((-self.rotational_force, 0), (0, -30))
+
+            if key.k[arcade.key.A] and self.bd[self.centralId].angular_velocity < self.rotational_limit:
+
+                self.bd[self.centralId].apply_impulse_at_local_point((-self.rotational_force, 0), (0, 30))
+                self.bd[self.centralId].apply_impulse_at_local_point((self.rotational_force, 0), (0, -30))
+
             if key.k[arcade.key.SPACE]:
                 self.dir *= -1
                 self.flip()
@@ -1183,7 +1202,7 @@ class MyGame(arcade.Window):
 
         # other stuff
         elif key == arcade.key.Z:
-            if (modifiers & arcade.key.MOD_SHIFT):
+            if modifiers & arcade.key.MOD_SHIFT:
                 PhysicsDumper().dumpData(EXEC_FOLDER + '\\test_dumps\\dump_full_bike.xml', self.bike, True)
                 PhysicsDumper().dumpData(EXEC_FOLDER + '\\test_dumps\\dump_full_level.xml', self.level, True)
             else:
@@ -1250,7 +1269,6 @@ class MyGame(arcade.Window):
                             self.bike.bd['head'].position.x + SCREEN_WIDTH/2/self.zoom,
                             self.bike.bd['head'].position.y - SCREEN_HEIGHT/2/self.zoom,
                             self.bike.bd['head'].position.y + SCREEN_HEIGHT/2/self.zoom)
-
 
 
 def main():

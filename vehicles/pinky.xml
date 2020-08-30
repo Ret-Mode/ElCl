@@ -6,7 +6,7 @@
   <body texture="wheel2.png" texture_flip_lr="False" texture_scale="1" type="DYNAMIC" position_x="80.0" position_y="-30.0" id="rw" mass="1.0" moment="112.5">
    <shape id="rw1" elasticity="0.0" friction="0.9" density="0.0" radius="32.0" offset_x="0.0" offset_y="0.0" type="CIRCLE" />
   </body>
-  <body central="True" texture="pinky.png" texture_flip_lr="True" texture_scale="1" type="DYNAMIC" position_x="0.0" position_y="0.0" id="head" mass="5.0" moment="6083.333333333333">
+  <body central="True" rotational_force="10" rotational_limit="10" texture="pinky.png" texture_flip_lr="True" texture_scale="1" type="DYNAMIC" position_x="0.0" position_y="0.0" id="head" mass="5.0" moment="6083.333333333333">
    <shape id="head" elasticity="0.9" friction="0.01" density="0.0" radius="15.0" offset_x="0.0" offset_y="0.0" type="CIRCLE" />
   </body>
  </bodies>
