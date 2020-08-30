@@ -1200,7 +1200,6 @@ class MyGame(arcade.Window):
             self.bike = PhysicsDumper().readData(self.vehicles.current(), self.space)
             self.bike.moveTo(self.level.player_x, self.level.player_y)
         elif key == arcade.key.N:
-            type = self.level.type[:]
             self.level.remove(self.space)
             del self.level
             self.level = PhysicsDumper().readData(self.levels.next(), self.space)

@@ -10,9 +10,13 @@ from typing import List, Tuple, Any, Union
 svg_format = """<svg
    xmlns="http://www.w3.org/2000/svg"
    xmlns:xlink="http://www.w3.org/1999/xlink"
+   xmlns:el="EL"
    height="{i_height}px"
    width="{i_width}px"
    id="svg5">
+   <el:start
+      x="300"
+      y="300" />
    <image
       xlink:href="{f_path}"
       y="0"
@@ -30,19 +34,24 @@ svg_paths = '''   <path
 '''
 
 
-def readSvg(path: str, scale: float) -> List[List[Union[
-    Tuple[Tuple[Union[float, Any], Union[float, Any]], Tuple[Union[float, Any], Union[float, Any]]], Tuple[
-        Tuple[Union[float, Any], Union[float, Any]], Tuple[Any, Any]]]]]:
-    height: float = 0
-    segmentList = []
-    tree: ET = ET.parse(path)
-    root: ET.Element = tree.getroot()
-    for polys in root:
-        if polys.tag.endswith('}image') or polys.tag == 'image':
-            height = float(polys.attrib['height'])
+def readImages(node, imageList):
+    for element in node:
+        if element.tag.endswith('}g') or element.tag == 'g':
+            readImages(element, imageList)
+        if element.tag.endswith('}image') or element.tag == 'image':
 
-    for polys in root:
-        if polys.tag.endswith('}path') or polys.tag == 'path':
+            imageList.append({'path': element.attrib['{http://www.w3.org/1999/xlink}href'],
+                              'x': float(element.attrib['x']),
+                              'y': float(element.attrib['y']),
+                              'width': float(element.attrib['width']),
+                              'height': float(element.attrib['height'])})
+
+
+def readSegments(node, scale, height, segmentList):
+    for polys in node:
+        if polys.tag.endswith('}g') or polys.tag == 'g':
+            readSegments(polys, scale, height, segmentList)
+        elif polys.tag.endswith('}path') or polys.tag == 'path':
             segments = []
             text: List[str] = polys.attrib['d'].split()
             mode = 'm'
@@ -103,7 +112,6 @@ def readSvg(path: str, scale: float) -> List[List[Union[
                             i += 5
                             x, y = text[i].split(',')
                             x, y = float(x), height - float(y)
-                        # TODO [EH] bezier curves
                         seg1 = (scale * px, scale * py)
                         seg2 = (scale * x,  scale * y)
                         segments.append((seg1, seg2))
@@ -119,6 +127,23 @@ def readSvg(path: str, scale: float) -> List[List[Union[
                 seg2 = (segments[0][0][0],  segments[0][0][1])
                 segments.append((seg1, seg2))
             segmentList.append(segments)
+
+
+def readSvg(path: str, scale: float) -> List[List[Union[
+    Tuple[Tuple[Union[float, Any], Union[float, Any]], Tuple[Union[float, Any], Union[float, Any]]], Tuple[
+        Tuple[Union[float, Any], Union[float, Any]], Tuple[Any, Any]]]]]:
+    height: float = 0
+    segmentList = []
+    imageList = []
+    tree: ET = ET.parse(path)
+    root: ET.Element = tree.getroot()
+
+    readImages(root, imageList)
+
+    if len(imageList) > 0:
+        height = imageList[0]['height']
+
+    readSegments(root, scale, height, segmentList)
 
     return segmentList
 
