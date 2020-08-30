@@ -372,6 +372,14 @@ class PhysicsDumper():
         if s.density != 0.0 or fullDump:
             xmlshape.set("density", str(s.density))
 
+        filter = s.filter
+        if filter.group != 0:
+            xmlshape.set("collision_group", str(filter.group))
+        if filter.categories != 0b11111111111111111111111111111111:
+            xmlshape.set("collision_category", str(bin(filter.category)))
+        if filter.mask != 0b11111111111111111111111111111111:
+            xmlshape.set("collision_mask", str(bin(filter.mask)))
+
     def dumpConstraints(self, constraintsElement, c, obj, fullDump=False):
         cns: Optional[pymunk.Constraint] = obj.cns[c]
         constraint = ET.SubElement(constraintsElement, 'constraint')
@@ -638,8 +646,6 @@ class PhysicsDumper():
             if "rotational_limit" in body.attrib:
                 obj.rotational_limit = float(body.attrib['rotational_limit'])
 
-
-
         for shape in body:
             if shape.tag == 'shape':
                 self.readShape(shape, obj.bd[name], obj, space)
@@ -725,6 +731,19 @@ class PhysicsDumper():
         obj.shp[sname].elasticity = elasticity
         if density > 0.0:
             obj.shp[sname].density = density
+
+        f_group = 0
+        f_category = 0b11111111111111111111111111111111
+        f_mask = 0b11111111111111111111111111111111
+
+        if 'collision_group' in shape.attrib:
+            f_group = int(shape.attrib["collision_group"])
+        if "collision_category" in shape.attrib:
+            f_category = int(shape.attrib["collision_category"], 2)
+        if "collision_mask" in shape.attrib:
+            f_mask = int(shape.attrib["collision_mask"], 2)
+
+        obj.shp[sname].filter = pymunk.ShapeFilter(f_group, f_category, f_mask)
 
     def readConstraint(self, c, obj, space):
         cntype = c.attrib['type']
