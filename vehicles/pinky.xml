@@ -1,10 +1,10 @@
 <root type="vehicle">
  <bodies>
   <body motor="True" speed="20.0" acc="0.05" differential_dest="rw" texture="wheel2.png" texture_flip_lr="False" texture_scale="1" type="DYNAMIC" position_x="-80.0" position_y="-30.0" id="lw" mass="1.0" moment="112.5">
-   <shape id="lw1" elasticity="0.0" friction="0.9" density="0.0" radius="32.0" offset_x="0.0" offset_y="0.0" type="CIRCLE" />
+   <shape id="lw1" elasticity="0.0" friction="0.9" density="0.0" radius="32.0" offset_x="0.0" offset_y="0.0" type="CIRCLE" collision_type="1"/>
   </body>
   <body texture="wheel2.png" texture_flip_lr="False" texture_scale="1" type="DYNAMIC" position_x="80.0" position_y="-30.0" id="rw" mass="1.0" moment="112.5">
-   <shape id="rw1" elasticity="0.0" friction="0.9" density="0.0" radius="32.0" offset_x="0.0" offset_y="0.0" type="CIRCLE" />
+   <shape id="rw1" elasticity="0.0" friction="0.9" density="0.0" radius="32.0" offset_x="0.0" offset_y="0.0" type="CIRCLE" collision_type="1"/>
   </body>
   <body central="True" rotational_force="10" rotational_limit="1" texture="pinky.png" texture_flip_lr="True" texture_scale="1" type="DYNAMIC" position_x="0.0" position_y="0.0" id="head" mass="5.0" moment="6083.333333333333">
    <shape id="head" elasticity="0.9" friction="0.01" density="0.0" radius="15.0" offset_x="0.0" offset_y="0.0" type="CIRCLE" collision_group="0" collision_category="0b11111111111111111111111111111111" collision_mask="0b11111111111111111111111111111111" />

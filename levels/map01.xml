@@ -1,4 +1,13 @@
 <root type="autogeometry" texture="map01.png" autogeometry_dx="1024" autogeometry_dy="128" scale="4.0" alpha_threshold="0.2" friction="5.0" elasticity="0.0" player_x="600.0" player_y="300.0">
  <svg_file path="map01.svg" />
+ <enemies>
+  <enemy position="300.0 300.0" />
+  <enemy position="400.0 400.0" />
+  <enemy position="500.0 500.0" />
+  <enemy position="600.0 600.0" />
+  <enemy position="700.0 400.0" />
+  <enemy position="800.0 500.0" />
+  <enemy position="900.0 600.0" />
+ </enemies>
  <constraints />
 </root>

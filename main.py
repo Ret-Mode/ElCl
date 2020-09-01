@@ -19,7 +19,7 @@ import pstats
 import xml.etree.ElementTree as ET
 
 # PyCharm type helper
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Tuple, Any
 
 
 import svg_parser
@@ -91,6 +91,10 @@ class Util:
     @staticmethod
     def getLevelsPath():
         return EXEC_FOLDER + '\\levels\\'
+
+    @staticmethod
+    def getEnemiesPath():
+        return EXEC_FOLDER + '\\enemies\\'
 
     @staticmethod
     def getFolderFromFilePath(filePath):
@@ -520,6 +524,8 @@ class PhysicsDumper():
                 if 'space_damping' in root.attrib:
                     space.damping = float(root.attrib['space_damping'])
 
+                obj.enemiesToLoad = self.readEnemies(root)
+
                 return obj
 
             elif root.attrib["type"] == 'level':
@@ -530,6 +536,10 @@ class PhysicsDumper():
 
             elif root.attrib["type"] == 'vehicle':
                 obj = Vehicle()
+                obj.type = root.attrib["type"]
+
+            elif root.attrib["type"] == 'enemy':
+                obj = Enemy()
                 obj.type = root.attrib["type"]
 
             else:
@@ -551,6 +561,15 @@ class PhysicsDumper():
                     self.readConstraint(c, obj, space)
 
         return obj
+
+    def readEnemies(self, root: Optional[ET.Element]) -> List[Tuple[float,float]]:
+        enemies = []
+        for child in root:
+            if child.tag == 'enemies':
+                for enemy in child:
+                    x, y = enemy.attrib['position'].split()
+                    enemies.append((float(x), float(y)))
+        return enemies
 
     def readAutogeometry(self, root: Optional[ET.Element], obj, path: str):
         obj.scale = float(root.attrib["scale"]) if "scale" in root.attrib else 1.0
@@ -613,7 +632,7 @@ class PhysicsDumper():
         obj.bd[name].position = px, py
         obj.bd[name].angle = angle
 
-        scale = 1.0
+
         if 'texture_scale' in body.attrib:
             scale = float(body.attrib['texture_scale'])
         obj.bdTex[name]: arcade.sprite.Sprite = arcade.sprite.Sprite(Util.getFileFromOtherFilePath(path, body.attrib["texture"]), scale)
@@ -727,6 +746,9 @@ class PhysicsDumper():
             obj.shp[sname] = pymunk.Poly(body, tmp, None, radius)
             space.add(obj.shp[sname])
 
+        else:
+            print("ERROR - Doesn't created any shape")
+
         obj.shp[sname].friction = friction
         obj.shp[sname].elasticity = elasticity
         if density > 0.0:
@@ -744,6 +766,9 @@ class PhysicsDumper():
             f_mask = int(shape.attrib["collision_mask"], 2)
 
         obj.shp[sname].filter = pymunk.ShapeFilter(f_group, f_category, f_mask)
+
+        if "collision_type" in shape.attrib:
+            obj.shp[sname].collision_type = int(shape.attrib["collision_type"])
 
     def readConstraint(self, c, obj, space):
         cntype = c.attrib['type']
@@ -846,6 +871,9 @@ class PhysicsDumper():
             obj.cns[cname].max_force = max_force
 
 
+
+
+
 class Level:
 
     def __init__(self):
@@ -855,6 +883,7 @@ class Level:
         self.type: str = "level"
         self.player_x = 300
         self.player_y = 300
+        self.enemiesToLoad = []
 
     def remove(self, space):
         for v in self.cns:
@@ -887,6 +916,7 @@ class Level2:
         self.type = "autogeometry"
         self.t: Optional[arcade.sprite.Sprite] = None
 
+        self.enemiesToLoad = []
         self.segments = []
         self.autogeometry_dx = 60
         self.autogeometry_dy = 60
@@ -964,6 +994,54 @@ class Level2:
                                                                                     (j[0][1] > viewport[3] and j[1][1] > viewport[3])):
                         arcade.draw_line(j[0][0], j[0][1], j[1][0], j[1][1], arcade.color.LEMON, 1)
 
+
+class Enemy:
+    def __init__(self):
+        self.bd: Dict[pymunk.Body] = {}
+        self.shp: Dict[pymunk.Shape] = {}
+        self.cns: Dict[pymunk.Constraint] = {}
+        self.bdTex: Dict[arcade.sprite.Sprite] = {}
+        self.type: str = "enemy"
+        self.dir = -1
+        self.hp = 1
+
+    def flip(self):
+        for n in self.bdTex:
+            if self.bdTex[n].texture_rotation:
+                self.bdTex[n].texture_transform.scale(-1, 1)
+
+    def create(self, space):
+        #PhysicsDumper().readData(path, space)
+        #PhysicsDumper('car_2.xml', EXEC_FOLDER).dumpData(self)
+        if self.dir < 0:
+            self.flip()
+            self.dir = 1
+
+    def moveTo(self, x, y):
+        for i in self.bd:
+            self.bd[i].position += (x, y)
+
+    def remove(self, space):
+        for v in self.cns:
+            space.remove(self.cns[v])
+        for v in self.shp:
+            space.remove(self.shp[v])
+        for v in self.bd:
+            space.remove(self.bd[v])
+        for v in self.bdTex:
+            self.bdTex[v].kill()
+
+    def draw(self, drawVectors=True, drawGraphics=True, filter=None):
+
+        if drawGraphics:
+            for body in sorted(self.bd.keys()):
+                self.bdTex[body].set_position(self.bd[body].position.x, self.bd[body].position.y)
+                self.bdTex[body].angle = self.bd[body].angle * 180 / math.pi
+                self.bdTex[body]._sprite_list._texture.filter = filter
+                self.bdTex[body].draw()
+
+        if drawVectors:
+            Util.drawVectors(self.shp)
 
 class Vehicle:
 
@@ -1101,6 +1179,16 @@ class Vehicle:
             key.unsetKey(arcade.key.SPACE)
 
 
+# TODO [EH] put this somewhere else later
+def wheelToRabbit_post(arbiter: pymunk.Arbiter, space: pymunk.Space, data: Any) -> bool:
+    if arbiter.total_ke > 200000.0:
+        bodyToRem = arbiter.shapes[1].body
+        for i in data['enemies']:
+            for b in i.bd:
+                if i.bd[b] == bodyToRem:
+                    i.hp = 0
+    return True
+
 class MyGame(arcade.Window):
     """
     Main application class.
@@ -1120,9 +1208,12 @@ class MyGame(arcade.Window):
         self.space = None
         self.bike = None
         self.level = None
+        self.enemy = []
         self.key = Keys()
         self.ang_vel = 0
         self.music = None
+        self.dt = 0
+        self.wheelToRabbit = None
         self.prevtime = time.time()
         self.frame_time = time.time()
         self.update_time = 0
@@ -1137,6 +1228,7 @@ class MyGame(arcade.Window):
 
         self.vehicles = RoundIterator(Util.getAllEntityFiles(Util.getVehiclePath()))
         self.levels = RoundIterator(Util.getAllEntityFiles(Util.getLevelsPath()))
+        self.enemies = RoundIterator(Util.getAllEntityFiles(Util.getEnemiesPath()))
         self.filters = RoundIterator([(0x2600, 0x2600), # arcade.gl.context.NEAREST
                                       (0x2601, 0x2601)]) # arcade.gl.context.LINEAR)])
 
@@ -1158,14 +1250,23 @@ class MyGame(arcade.Window):
         self.space = pymunk.Space()
         self.space.gravity = (0, -100)
         self.space.damping = 1
+
+
+
         self.dt = time.time()
 
         self.level = PhysicsDumper().readData(self.levels.current(), self.space)
         self.bike = PhysicsDumper().readData(self.vehicles.current(), self.space)
         self.bike.moveTo(self.level.player_x, self.level.player_y)
-        # for i in self.bike.bdTex:
-        #     self.spriteList.append(self.bike.bdTex[i])
-        # self.spriteList.append(self.level.t)
+        for i in self.level.enemiesToLoad:
+            self.enemy.append(PhysicsDumper().readData(self.enemies.current(), self.space))
+            self.enemy[-1].moveTo(i[0], i[1])
+
+
+        # TODO [EH] collisions between wheels and rabbits
+        self.wheelToRabbit = self.space.add_collision_handler(1, 2)
+        self.wheelToRabbit.data['enemies'] = self.enemy
+        self.wheelToRabbit.post_solve = wheelToRabbit_post
 
         self.music = arcade.Sound(":resources:music/1918.mp3", streaming=True)
         self.music.play(0.02)
@@ -1195,6 +1296,8 @@ class MyGame(arcade.Window):
 
         self.level.draw(self.drawVectors, self.drawGraphics, self.filters.current())
         self.bike.draw(self.drawVectors, self.drawGraphics, self.filters.current())
+        for enemy in self.enemy:
+            enemy.draw(self.drawVectors, self.drawGraphics, self.filters.current())
         #self.spriteList.draw(filter=pyglet.gl.GL_NEAREST)
 
         if self.drawText:
@@ -1239,8 +1342,16 @@ class MyGame(arcade.Window):
             self.bike.moveTo(self.level.player_x, self.level.player_y)
         elif key == arcade.key.N:
             self.level.remove(self.space)
+            for enemy in self.enemy:
+                enemy.remove(self.space)
+            self.enemy = []
             del self.level
             self.level = PhysicsDumper().readData(self.levels.next(), self.space)
+            for i in self.level.enemiesToLoad:
+                self.enemy.append(PhysicsDumper().readData(self.enemies.current(), self.space))
+                self.enemy[-1].moveTo(i[0], i[1])
+            # TODO [EH] set new dict to post solve Wheel-Rabbit collision
+            self.wheelToRabbit.data['enemies'] = self.enemy
         elif key == arcade.key.Q:
             self.printFPS = not self.printFPS
         elif key == arcade.key.M:
@@ -1282,6 +1393,12 @@ class MyGame(arcade.Window):
         if self.processPhysics:
                 self.space.step(dt)
         self.dt = time.time()
+
+        for i in range(len(self.enemy)):
+            if self.enemy[i].hp < 1:
+                toDel: Enemy = self.enemy.pop(i)
+                toDel.remove(self.space)
+                break
 
         # Do the view scrolling
         arcade.set_viewport(self.bike.bd['head'].position.x - SCREEN_WIDTH/2/self.zoom,
