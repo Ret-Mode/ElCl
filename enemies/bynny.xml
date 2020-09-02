@@ -1,0 +1,7 @@
+<root type="enemy">
+    <bodies>
+    <body id="main" central="True" speed="20.0" acc="0.05" texture="bunny.png" texture_flip_lr="False" texture_scale="0.3" type="DYNAMIC" position_x="0" position_y="0.0"  mass="0.1" moment="112.5">
+        <shape id="main1" elasticity="0.0" friction="0.9" radius="20.0" a_x="0.0" a_y="-30.0" b_x="0.0" b_y="10.0" type="SEGMENT" collision_type="2"/>
+    </body>
+    </bodies>
+</root>

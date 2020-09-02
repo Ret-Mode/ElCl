@@ -939,6 +939,7 @@ class Level2:
 
     def create(self, space):
         #PhysicsDumper().readData(path, space)
+        # TODO [EH] can it be removed?
         self.getMarchingCubes(self.autogeometry_dx, self.autogeometry_dy).sendSegmentsToPhysics(space)
         #PhysicsDumper('level_3.xml', EXEC_FOLDER).dumpData(self)
 
