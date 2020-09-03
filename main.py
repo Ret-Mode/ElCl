@@ -6,6 +6,8 @@ import sys
 import math
 import time
 
+import PIL
+
 # game imports
 import pyglet.gl
 import arcade
@@ -635,7 +637,10 @@ class PhysicsDumper():
 
         if 'texture_scale' in body.attrib:
             scale = float(body.attrib['texture_scale'])
-        obj.bdTex[name]: arcade.sprite.Sprite = arcade.sprite.Sprite(Util.getFileFromOtherFilePath(path, body.attrib["texture"]), scale)
+        #obj.bdTex[name]: arcade.sprite.Sprite = arcade.sprite.Sprite(Util.getFileFromOtherFilePath(path, body.attrib["texture"]), scale)
+        obj.bdTex[name]: arcade.sprite.Sprite = arcade.sprite.Sprite()
+        obj.bdTex[name].texture = arcade.Texture(name, PIL.Image.open(Util.getFileFromOtherFilePath(path, body.attrib["texture"])).convert('RGBA'))
+        obj.bdTex[name].scale = scale
         obj.bdTex[name].draw()
         # obj.bdTex[name]._sprite_list = arcade.sprite_list.SpriteList()
         # obj.bdTex[name]._sprite_list.append(obj.bdTex[name])
@@ -1182,13 +1187,32 @@ class Vehicle:
 
 # TODO [EH] put this somewhere else later
 def wheelToRabbit_post(arbiter: pymunk.Arbiter, space: pymunk.Space, data: Any) -> bool:
+    enemy: Enemy = None
+    bodyId = None
+    bodyToRem = arbiter.shapes[1].body
+    for i in data['enemies']:
+        for b in i.bd:
+            if i.bd[b] == bodyToRem:
+                enemy = i
+                bodyId = b
+
     if arbiter.total_ke > 200000.0:
-        bodyToRem = arbiter.shapes[1].body
-        for i in data['enemies']:
-            for b in i.bd:
-                if i.bd[b] == bodyToRem:
-                    i.hp = 0
+        enemy.hp = 0
+    else:
+        tex = enemy.bdTex[bodyId].texture.image
+        alpha = tex.getchannel("A")
+        draw = PIL.ImageDraw.Draw(tex)
+        draw.bitmap((20, 20), tex, fill=(128,0,0))
+        # TODO [EH] hack -> draw anything and clear current image names from sprite sprite_list for faster update
+        del draw
+        tex.putalpha(alpha)
+        del alpha
+        enemy.bdTex[bodyId].sprite_lists[0].array_of_images = []
+        enemy.bdTex[bodyId].sprite_lists[0].array_of_texture_names = []
+        enemy.bdTex[bodyId].sprite_lists[0]._calculate_sprite_buffer()
+
     return True
+
 
 class MyGame(arcade.Window):
     """
