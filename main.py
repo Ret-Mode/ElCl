@@ -72,12 +72,15 @@ def wheelToRabbit_post(arbiter: pymunk.Arbiter, space: pymunk.Space, data: Any) 
     else:
         tex = enemy.bdTex[bodyId].texture.image
         alpha = tex.getchannel("A")
-        draw = PIL.ImageDraw.Draw(tex)
-        draw.bitmap((20, 20), tex, fill=(128,0,0))
-        # TODO [EH] hack -> draw anything and clear current image names from sprite sprite_list for faster update
-        del draw
-        tex.putalpha(alpha)
-        del alpha
+        if True:
+            tex.paste(tex, (100, 100), alpha)
+        else:
+            draw = PIL.ImageDraw.Draw(tex)
+            draw.bitmap((20, 20), tex)
+            # TODO [EH] hack -> draw anything and clear current image names from sprite sprite_list for faster update
+            del draw
+            tex.putalpha(alpha)
+            del alpha
         enemy.bdTex[bodyId].sprite_lists[0].array_of_images = []
         enemy.bdTex[bodyId].sprite_lists[0].array_of_texture_names = []
         enemy.bdTex[bodyId].sprite_lists[0]._calculate_sprite_buffer()
@@ -165,7 +168,7 @@ class MyGame(arcade.Window):
         self.wheelToRabbit.post_solve = wheelToRabbit_post
 
         self.music = arcade.Sound(":resources:music/1918.mp3", streaming=True)
-        self.music.play(0.02)
+        # self.music.play(0.02)
 
     def print_physic_elems(self, body_dict, body_id):
         b = body_dict[body_id]
@@ -252,10 +255,12 @@ class MyGame(arcade.Window):
         elif key == arcade.key.M:
             self.drawVectors = not self.drawVectors
         elif key == arcade.key.ESCAPE:
-            self.close()
+            if not (modifiers & arcade.key.MOD_SHIFT):
+                self.close()
         elif key == arcade.key.F:
             self.bike.remove(self.space)
-            self.bike = xml_parser.readData(self.vehicles.next(), self.space)
+            next = self.vehicles.next()
+            self.bike = xml_parser.readData(next, self.space)
             self.bike.moveTo(self.level.player_x, self.level.player_y)
         elif key == arcade.key.R:
             if (modifiers & arcade.key.MOD_SHIFT):

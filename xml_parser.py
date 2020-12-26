@@ -474,6 +474,11 @@ def readBodyWithTex(body, obj, space, path: str):
         px = float(body.attrib["position_x"])
         py = float(body.attrib["position_y"])
 
+    if 'position' in body.attrib:
+        tmp = body.attrib["position_x"].split()
+        px = float(tmp[0])
+        py = float(tmp[1])
+
     if "start_angle" in body.attrib:
         angle = float(body.attrib["start_angle"])
 
@@ -481,6 +486,8 @@ def readBodyWithTex(body, obj, space, path: str):
     space.add(obj.bd[name])
     obj.bd[name].position = px, py
     obj.bd[name].angle = angle
+    obj.bd[name].master = obj
+
 
     if 'texture_scale' in body.attrib:
         scale = float(body.attrib['texture_scale'])
@@ -489,6 +496,7 @@ def readBodyWithTex(body, obj, space, path: str):
     obj.bdTex[name].texture = arcade.Texture(name, PIL.Image.open(
         util.getFileFromOtherFilePath(path, body.attrib["texture"])).convert('RGBA'))
     obj.bdTex[name].scale = scale
+    # draw to generate sprite list and vbo for the sprite/image
     obj.bdTex[name].draw()
     # obj.bdTex[name]._sprite_list = arcade.sprite_list.SpriteList()
     # obj.bdTex[name]._sprite_list.append(obj.bdTex[name])
@@ -550,6 +558,11 @@ def readBody(body, obj, space):
         px = float(body.attrib["position_x"])
         py = float(body.attrib["position_y"])
 
+    if 'position' in body.attrib:
+        tmp = body.attrib["position_x"].split()
+        px = float(tmp[0])
+        py = float(tmp[1])
+
     if "start_angle" in body.attrib:
         angle = float(body.attrib["start_angle"])
 
@@ -557,6 +570,7 @@ def readBody(body, obj, space):
     space.add(obj.bd[name])
     obj.bd[name].position = px, py
     obj.bd[name].angle = angle
+    obj.bd[name].master = obj
 
     for shape in body:
         if shape.tag == 'shape':
@@ -582,6 +596,7 @@ def readShape(shape, body, obj, space):
         radius = float(shape.attrib["radius"])
 
     if stype == "SEGMENT":
+        # TODO[EH]: change to ab='1 2 3 4'
         a_x = float(shape.attrib["a_x"])  # + px
         a_y = float(shape.attrib["a_y"])  # + py
         b_x = float(shape.attrib["b_x"])  # + px
@@ -590,6 +605,7 @@ def readShape(shape, body, obj, space):
         space.add(obj.shp[sname])
 
     elif stype == "CIRCLE":
+        # TODO[EH]: change to offset='1 2'
         o_x = float(shape.attrib["offset_x"])
         o_y = float(shape.attrib["offset_y"])
         obj.shp[sname] = pymunk.Circle(body, radius, (o_x, o_y))
@@ -602,7 +618,7 @@ def readShape(shape, body, obj, space):
         space.add(obj.shp[sname])
 
     else:
-        print("ERROR - Doesn't created any shape")
+        print("ERROR - Didn't created any shape due to wrong shape type")
 
     obj.shp[sname].friction = friction
     obj.shp[sname].elasticity = elasticity
@@ -625,6 +641,7 @@ def readShape(shape, body, obj, space):
     if "collision_type" in shape.attrib:
         obj.shp[sname].collision_type = int(shape.attrib["collision_type"])
 
+    obj.shp[sname].master = obj
 
 def readConstraint(c, obj, space):
     cntype = c.attrib['type']

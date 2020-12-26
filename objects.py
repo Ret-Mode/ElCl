@@ -7,6 +7,10 @@ from typing import Optional, Dict, List, Tuple, Any
 import util
 import math
 
+###########################################################
+# file for game objects (Keys, Levels, actors)
+
+
 
 class Keys:
     def __init__(self):
